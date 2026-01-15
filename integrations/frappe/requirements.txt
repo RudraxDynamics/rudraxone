@@ -1,2 +1,2 @@
 frappe
-nutaan_erp>=1.0.1
+nutaan_erp
