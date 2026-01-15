@@ -1,0 +1,32 @@
+{
+    "name": "@tecosys/ai-agent-widget",
+    "version": "0.1.0",
+    "description": "Universal AI Agent Widget for any website - chat interface with autonomous task execution",
+    "main": "dist/ai-widget.js",
+    "style": "dist/ai-widget.css",
+    "files": [
+        "dist/",
+        "src/",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "echo 'No build needed - pure vanilla JS/CSS'",
+        "dev": "echo 'Open examples/standalone.html in browser'"
+    },
+    "keywords": [
+        "ai",
+        "agent",
+        "widget",
+        "chat",
+        "autonomous",
+        "langchain",
+        "gemini"
+    ],
+    "author": "Tecosys",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/tecosys/ai-agent-widget.git"
+    }
+}

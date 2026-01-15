@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# SDK build artifacts
+sdk/nutaan_erp.egg-info/
+sdk/build/
+sdk/dist/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Frappe
+sites/*/logs/
+*.compiled
+sites/*/private/backups/*
+sites/*/private/files/*
+
+# Node
+node_modules/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+widget/dist/*.map
