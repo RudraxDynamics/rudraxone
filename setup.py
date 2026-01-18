@@ -10,7 +10,7 @@ setup(
     version="1.0.0",
     description="AI Agent Widget for ERPNext - Autonomous navigation and task execution",
     author="Tecosys",
-    author_email="info@tecosys.com",
+    author_email="info@tecosys.in",
     packages=find_packages(),
     zip_safe=False,
     include_package_data=True,

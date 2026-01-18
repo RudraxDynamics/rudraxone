@@ -7,7 +7,7 @@ name = "ai_agent_widget"
 version = "1.0.0"
 description = "AI Agent Widget for ERPNext - Autonomous navigation and task execution"
 authors = [
-    {name = "Tecosys", email = "info@tecosys.com"}
+    {name = "Tecosys", email = "info@tecosys.in"}
 ]
 license = {text = "MIT"}
 readme = "README.md"
