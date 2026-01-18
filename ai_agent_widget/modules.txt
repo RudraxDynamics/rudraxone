@@ -1,1 +1,1 @@
-AI Agent Widget
+# No custom modules - this app only provides frontend widget and API
