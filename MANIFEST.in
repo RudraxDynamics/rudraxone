@@ -1,0 +1,9 @@
+include ai_agent_widget/modules.txt
+include ai_agent_widget/patches.txt
+include *.md
+include LICENSE
+include requirements.txt
+recursive-include ai_agent_widget/public *
+recursive-include ai_agent_widget/templates *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[cod]

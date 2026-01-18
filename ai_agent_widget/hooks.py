@@ -2,11 +2,11 @@ from . import __version__ as app_version
 
 app_name = "ai_agent_widget"
 app_title = "AI Agent Widget"
-app_publisher = "Your Company"
+app_publisher = "Tecosys"
 app_description = "AI Agent Widget for ERPNext - Autonomous navigation and task execution"
 app_icon = "octicon octicon-zap"
 app_color = "purple"
-app_email = "your@email.com"
+app_email = "info@tecosys.com"
 app_license = "MIT"
 
 # Apps to include JS / CSS assets

@@ -1,0 +1,3 @@
+# Patches for AI Agent Widget
+# Add patch entries here as:
+# ai_agent_widget.patches.patch_file_name
