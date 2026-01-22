@@ -6,7 +6,7 @@ app_publisher = "Tecosys"
 app_description = "AI Agent Widget for ERPNext - Autonomous navigation and task execution"
 app_icon = "octicon octicon-zap"
 app_color = "purple"
-app_email = "info@tecosys.com"
+app_email = "info@tecosys.in"
 app_license = "MIT"
 
 # Apps to include JS / CSS assets

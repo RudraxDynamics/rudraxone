@@ -211,7 +211,7 @@ bench --site [your-site-name] console
 ## Support
 
 - **Issues:** https://github.com/RudraxDynamics/rudraxone/issues
-- **Email:** info@tecosys.com
+- **Email:** info@tecosys.in
 - **Website:** https://nutaan.com
 
 ---
