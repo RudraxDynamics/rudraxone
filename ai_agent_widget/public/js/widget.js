@@ -176,8 +176,13 @@ class AgenticChatWidget {
             }
         });
 
-        // Auto-resize textarea as user types
-        this.input.on('input', () => {
+        // Auto-resize textarea on all input changes
+        this.input.on('input keyup change paste', () => {
+            this.autoResizeTextarea();
+        });
+
+        // Also resize on focus to handle any missed changes
+        this.input.on('focus', () => {
             this.autoResizeTextarea();
         });
 
@@ -193,20 +198,32 @@ class AgenticChatWidget {
     }
 
     autoResizeTextarea() {
-        // Reset height to calculate new scrollHeight
-        this.input.css('height', 'auto');
+        // Store current scroll position to prevent jumping
+        const currentScrollTop = this.input[0].scrollTop;
+
+        // Reset height to minimum to get accurate scrollHeight
+        this.input.css('height', '44px');
 
         const scrollHeight = this.input[0].scrollHeight;
         const maxHeight = 120;
-        const minHeight = 42;
+        const minHeight = 44;
 
+        // Calculate new height with proper constraints
+        let newHeight;
         if (scrollHeight > maxHeight) {
-            this.input.css('height', maxHeight + 'px');
+            newHeight = maxHeight;
             this.input.css('overflow-y', 'auto');
         } else {
-            const newHeight = Math.max(scrollHeight, minHeight);
-            this.input.css('height', newHeight + 'px');
+            newHeight = Math.max(scrollHeight, minHeight);
             this.input.css('overflow-y', 'hidden');
+        }
+
+        // Apply new height smoothly
+        this.input.css('height', newHeight + 'px');
+
+        // Restore scroll position if needed
+        if (currentScrollTop > 0) {
+            this.input[0].scrollTop = currentScrollTop;
         }
     }
 
@@ -230,10 +247,13 @@ class AgenticChatWidget {
     handleQuickAction(action) {
         switch (action) {
             case 'demo':
-                this.input.val('Go to Sales Order and create a new sales order with customer ABC Corp');
+                this.input.val('Go to Sales Order and create a new sales order with customer Aditya Birla Group');
+                this.autoResizeTextarea(); // Trigger resize after setting value
+                this.input.focus();
                 break;
             case 'navigate':
                 this.input.val('Go to ');
+                this.autoResizeTextarea(); // Trigger resize after setting value
                 this.input.focus();
                 break;
             case 'clear':
@@ -257,6 +277,24 @@ class AgenticChatWidget {
             }).catch(err => { }); // Silent fail on cache cleanup
 
             this.currentPdfKey = null;
+        }
+
+        // Clear validation cache and flow state (if they exist)
+        if (this.validatedEntities) {
+            Object.keys(this.validatedEntities).forEach(key => {
+                if (this.validatedEntities[key] && typeof this.validatedEntities[key].clear === 'function') {
+                    this.validatedEntities[key].clear();
+                }
+            });
+        }
+
+        if (this.flowState) {
+            this.flowState = {
+                currentGoal: null,
+                dependencies: [],
+                createdEntities: [],
+                pendingInfo: {}
+            };
         }
 
         this.initializeChat();
@@ -523,27 +561,25 @@ class AgenticChatWidget {
                 }
             }
 
-            // If errors occurred, tell the agent about them
-            if (hasErrors && toolExecutionResults.length > 0) {
-                this.updateSubtitle('🔄 Updating agent...');
 
-                // Build summary of what happened
+            // Check if we have a final response from the agent
+            if (result.content) {
+                const cleanContent = this.cleanResponseContent(result.content);
+                assistantMsg.content = cleanContent;
+            } else if (hasErrors && toolExecutionResults.length > 0) {
+                // Only show raw errors if agent didn't provide a response
                 const errorSummary = toolExecutionResults
                     .filter(r => r.result.includes('❌') || r.result.includes('⚠️'))
                     .map(r => `${r.tool}: ${r.result}`)
                     .join('\n');
 
-                // Show errors as the response
                 assistantMsg.content = `⚠️ Some actions encountered issues:\n\n${errorSummary}\n\nPlease review the errors above or try a different approach.`;
-            } else if (result.content) {
-                // Clean the response content to extract just the text
-                const cleanContent = this.cleanResponseContent(result.content);
-                assistantMsg.content = cleanContent;
             } else if (assistantMsg.toolCalls.length > 0) {
                 assistantMsg.content = '✅ Task completed successfully';
             } else {
                 assistantMsg.content = '✅ Done';
             }
+
 
             // Store session data if available and show export button
             if (result.session_data && result.session_data.total_actions > 0) {
@@ -585,7 +621,8 @@ class AgenticChatWidget {
                     return `✅ Navigated to ${actionData.doctype}`;
 
                 case 'create_doc':
-                    frappe.new_doc(actionData.doctype);
+                    // Use set_route to ensure form opens in full screen (not dialog)
+                    frappe.set_route('Form', actionData.doctype, 'new');
                     await this.wait(500);
                     return `✅ Creating new ${actionData.doctype}`;
 
@@ -628,21 +665,36 @@ class AgenticChatWidget {
                     return `✅ Navigated to ${args.doctype}`;
 
                 case 'create_doc':
-                    await frappe.new_doc(args.doctype);
+                    // Use set_route to ensure form opens in full screen (not dialog)
+                    frappe.set_route('Form', args.doctype, 'new');
                     // Wait for proper form load
+                    let formReady = false;
                     for (let i = 0; i < 20; i++) {
-                        if (cur_frm && cur_frm.docname && !cur_frm.docname.includes('New ' + args.doctype + ' 1')) break;
+                        if (cur_frm && cur_frm.docname && !cur_frm.docname.includes('New ' + args.doctype + ' 1')) {
+                            formReady = true;
+                            break;
+                        }
                         // Note: Frappe temporary names can vary, but generally we just need cur_frm to exist and match doctype
-                        if (cur_frm && cur_frm.doctype === args.doctype) break;
+                        if (cur_frm && cur_frm.doctype === args.doctype) {
+                            formReady = true;
+                            break;
+                        }
                         await this.wait(200);
                     }
-                    return `✅ Creating new ${args.doctype}`;
+
+                    if (!formReady || !cur_frm) {
+                        return `⚠️ Form for ${args.doctype} opened but not fully loaded. Please wait...`;
+                    }
+
+                    // Extra wait to ensure all field bindings are complete
+                    await this.wait(1000);
+                    return `✅ ${args.doctype} form ready`;
 
                 case 'set_field':
                     // Retry logic for form loading
                     for (let retry = 0; retry < 3; retry++) {
-                        if (cur_frm) break;
-                        await this.wait(500); // Wait for form to load
+                        if (cur_frm && cur_frm.fields_dict && Object.keys(cur_frm.fields_dict).length > 0) break;
+                        await this.wait(400); // Wait for form to load
                     }
 
                     if (cur_frm) {
@@ -695,9 +747,23 @@ class AgenticChatWidget {
 
                         // Check for new validation errors
                         const newErrors = this.captureValidationErrors();
+
+                        // Intercept and close any error dialogs
+                        const errorDialog = document.querySelector('.modal.show .modal-body');
+                        if (errorDialog) {
+                            const errorText = errorDialog.innerText.trim();
+                            if (errorText && errorText.length > 0) {
+                                // Close the dialog before showing error to agent
+                                $('.modal.show .btn-modal-close, .modal.show .btn-primary, .modal.show .btn-default').click();
+                                await this.wait(200);
+                                return `❌ Validation error: ${errorText}`;
+                            }
+                        }
+
                         if (newErrors) {
                             return `⚠️ Clicked "${args.button_text}" but got validation errors:\n${newErrors}`;
                         }
+
                         return `✅ Clicked "${args.button_text}"`;
                     }
                     return `❌ Button "${args.button_text}" not found`;
@@ -966,7 +1032,7 @@ class AgenticChatWidget {
                                 callback: (r) => {
                                     resolve(r.message && r.message.name);
                                 },
-                                error: (err) => reject(err)
+                                error: (err) => resolve(null) // Don't reject, just return null
                             });
                         });
 
@@ -1167,7 +1233,7 @@ class AgenticChatWidget {
                 {
                     fieldtype: 'HTML',
                     options: `
-    < div style = "padding: 10px;" >
+                        <div style="padding: 10px;">
                             <div style="background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%); 
                                         color: white; padding: 25px; border-radius: 12px; margin-bottom: 20px;
                                         box-shadow: 0 4px 6px rgba(139, 92, 246, 0.2);">
