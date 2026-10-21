@@ -84,7 +84,11 @@ def run_step(data, user, context=None):
             "validation messages as actual outcomes; correct them or ask the user. "
             "create_doc only opens a blank form. Setting fields does not save it. "
             "Never say a record was created until Save returns a confirmed document ID. "
-            "Do not repeat a successful Save. Keep final answers concise."
+            "Do not repeat a successful Save. Keep final answers concise. "
+            "For explanations in the narrow chat panel, prefer short paragraphs and bullets. "
+            "Use a table only when columns make the answer clearer, and keep it compact. "
+            "Distinguish required information from optional details when answering setup questions. "
+            "Write plain Markdown without escaped pipes or line endings."
         )
         messages = [SystemMessage(content=prompt)]
         for item in history[-20:]:

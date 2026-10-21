@@ -362,8 +362,9 @@ class AgenticChatWidget {
 
     createMessageElement(message) {
         const isUser = message.role === 'user';
+        const hasTable = !isUser && /\|\s*:?-{3,}/.test(message.content || '');
         return `
-            <div class="ai-agent-message ${isUser ? 'user' : 'assistant'}">
+            <div class="ai-agent-message ${isUser ? 'user' : 'assistant'}${hasTable ? ' has-table' : ''}">
                 <div class="ai-agent-message-content">
                     <div class="ai-agent-message-text">${this.formatContent(message.content || (message.isStreaming ? 'Working on it…' : ''))}</div>
                 </div>
@@ -373,15 +374,106 @@ class AgenticChatWidget {
 
     formatContent(content) {
         if (!content) return '';
+        const lines = String(content)
+            .replace(/\r\n?/g, '\n')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\\\|/g, '|')
+            .replace(/\\\s*\n/g, '\n')
+            .split('\n');
+        const blocks = [];
+        let paragraph = [];
+        let listType = null;
+        let listItems = [];
+        let codeLines = null;
 
-        // Ensure content is a string
-        const textContent = typeof content === 'string' ? content : String(content);
+        const flushParagraph = () => {
+            if (paragraph.length) blocks.push(`<p>${paragraph.map(line => this.formatInline(line)).join('<br>')}</p>`);
+            paragraph = [];
+        };
+        const flushList = () => {
+            if (listItems.length) blocks.push(`<${listType}>${listItems.map(item => `<li>${this.formatInline(item)}</li>`).join('')}</${listType}>`);
+            listItems = [];
+            listType = null;
+        };
+        const cells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+        const isSeparator = line => {
+            const parts = cells(line);
+            return parts.length > 1 && parts.every(part => /^:?-{3,}:?$/.test(part));
+        };
 
-        // Escape model output before applying lightweight formatting.
-        const safeContent = $('<div>').text(textContent).html();
-        return safeContent
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
+        for (let index = 0; index < lines.length; index++) {
+            const line = lines[index];
+            const trimmed = line.trim();
+            if (/^```/.test(trimmed)) {
+                flushParagraph();
+                flushList();
+                if (codeLines) {
+                    blocks.push(`<pre><code>${this.escapeHtml(codeLines.join('\n'))}</code></pre>`);
+                    codeLines = null;
+                } else {
+                    codeLines = [];
+                }
+                continue;
+            }
+            if (codeLines) {
+                codeLines.push(line);
+                continue;
+            }
+            if (trimmed.includes('|') && index + 1 < lines.length && isSeparator(lines[index + 1])) {
+                flushParagraph();
+                flushList();
+                const headings = cells(line);
+                const rows = [];
+                index++;
+                while (index + 1 < lines.length && lines[index + 1].trim().includes('|') && lines[index + 1].trim()) {
+                    rows.push(cells(lines[++index]));
+                }
+                blocks.push(`<div class="ai-agent-table-scroll"><table><thead><tr>${headings.map(cell => `<th>${this.formatInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headings.map((_, cellIndex) => `<td>${this.formatInline(row[cellIndex] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+                continue;
+            }
+            if (!trimmed) {
+                flushParagraph();
+                flushList();
+                continue;
+            }
+            const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+            if (heading) {
+                flushParagraph();
+                flushList();
+                blocks.push(`<h4>${this.formatInline(heading[2])}</h4>`);
+                continue;
+            }
+            const list = trimmed.match(/^(?:([-*])|(\d+[.)]))\s+(.+)$/);
+            if (list) {
+                flushParagraph();
+                const type = list[1] ? 'ul' : 'ol';
+                if (listType && listType !== type) flushList();
+                listType = type;
+                listItems.push(list[3]);
+                continue;
+            }
+            flushList();
+            paragraph.push(trimmed);
+        }
+        flushParagraph();
+        flushList();
+        if (codeLines) blocks.push(`<pre><code>${this.escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        return blocks.join('');
+    }
+
+    escapeHtml(value) {
+        return $('<div>').text(value).html();
+    }
+
+    formatInline(value) {
+        const code = [];
+        let safe = this.escapeHtml(value).replace(/`([^`]+)`/g, (_match, text) => {
+            code.push(`<code>${text}</code>`);
+            return `\uE000${code.length - 1}\uE001`;
+        });
+        safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+        return safe.replace(/\uE000(\d+)\uE001/g, (_match, index) => code[Number(index)] || '');
     }
 
     scrollToBottom() {
