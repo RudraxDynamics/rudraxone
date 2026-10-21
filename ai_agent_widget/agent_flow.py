@@ -5,8 +5,8 @@ from uuid import uuid4
 import frappe
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from nutaan_erp.core.tools import get_all_tools
-from nutaan_erp.utils.context import build_system_prompt
 
+from .branding import brand_response_text, build_pilot_prompt
 from .providers import get_configured_manager
 from .redaction import redact_text, sensitive_values
 
@@ -103,10 +103,7 @@ def run_step(data, user, context=None):
         history = data.get("history") or []
         if history and history[-1].get("role") == "user" and history[-1].get("content") == message:
             history = history[:-1]
-        prompt = build_system_prompt(context or {}).replace(
-            "You are Nutaan AI, an intelligent automation assistant for ERPNext.",
-            "You are RudraX Pilot, an assistant for RudraX One."
-        )
+        prompt = build_pilot_prompt(context)
         prompt += (
             "\nBROWSER ACTIONS: Request exactly one tool call at a time. The browser executes it "
             "and returns its real result before you decide what to do next. Treat errors and "
@@ -166,6 +163,7 @@ def run_step(data, user, context=None):
         saved = state["saved_document"]
         verb = "Created" if saved["created"] else "Saved"
         content = f"{verb} {saved['doctype']} {saved['name']}."
+    content = brand_response_text(content)
     frappe.cache().delete_value(_session_key(session_id))
     return {"session_id": session_id, "done": True, "content": content,
             "saved_document": state["saved_document"], "record_links": state["record_links"]}

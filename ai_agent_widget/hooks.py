@@ -3,7 +3,7 @@ from . import __version__ as app_version
 app_name = "ai_agent_widget"
 app_title = "AI Agent Widget"
 app_publisher = "Tecosys"
-app_description = "AI Agent Widget for ERPNext - Autonomous navigation and task execution"
+app_description = "RudraX Pilot for RudraX One - navigation and task assistance"
 app_icon = "octicon octicon-zap"
 app_color = "purple"
 app_email = "info@tecosys.in"
@@ -11,11 +11,11 @@ app_license = "MIT"
 
 # Apps to include JS / CSS assets
 app_include_js = [
-    "/assets/ai_agent_widget/js/widget.js?v=20261021-context-prompts-1"
+    "/assets/ai_agent_widget/js/widget.js?v=20261021-compact-composer-1"
 ]
 
 app_include_css = [
-    "/assets/ai_agent_widget/css/widget.css?v=20261021-context-prompts-1"
+    "/assets/ai_agent_widget/css/widget.css?v=20261021-compact-composer-1"
 ]
 
 # Include JS at page level (loaded on every page)

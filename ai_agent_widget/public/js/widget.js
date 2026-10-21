@@ -426,7 +426,7 @@ class AgenticChatWidget {
         this.initializeChat();
         this.currentSessionData = null;
         this.hasCompletedActions = false;
-        this.widget.find('.ai-agent-export-btn').fadeOut(300);
+        this.widget.find('.ai-agent-export-btn').hide();
         if (this.storageKey) localStorage.removeItem(this.storageKey);
         this.renderMessages();
         this.refreshSuggestions();
@@ -434,6 +434,9 @@ class AgenticChatWidget {
 
     renderMessages() {
         this.messagesContainer.empty();
+        const hasConversation = this.messages.length > 1;
+        this.widget.find('.ai-agent-input-area').toggleClass('has-conversation', hasConversation);
+        this.widget.find('.ai-agent-quick-actions').toggleClass('is-hidden', !hasConversation);
 
         this.messages.forEach(msg => {
             const msgHtml = this.createMessageElement(msg);
@@ -445,14 +448,19 @@ class AgenticChatWidget {
 
     createMessageElement(message) {
         const isUser = message.role === 'user';
-        const hasTable = !isUser && /\|\s*:?-{3,}/.test(message.content || '');
+        const content = isUser ? message.content : this.brandAssistantText(message.content);
+        const hasTable = !isUser && /\|\s*:?-{3,}/.test(content || '');
         return `
             <div class="ai-agent-message ${isUser ? 'user' : 'assistant'}${hasTable ? ' has-table' : ''}">
                 <div class="ai-agent-message-content">
-                    <div class="ai-agent-message-text">${this.formatContent(message.content || (message.isStreaming ? 'Working on it…' : ''), isUser ? [] : message.recordLinks)}</div>
+                    <div class="ai-agent-message-text">${this.formatContent(content || (message.isStreaming ? 'Working on it…' : ''), isUser ? [] : message.recordLinks)}</div>
                 </div>
             </div>
         `;
+    }
+
+    brandAssistantText(content) {
+        return String(content || '').replace(/\b(?:ERP\s*Next|Frappe|Nutaan\s+(?:AI|ERP))\b/gi, 'RudraX One');
     }
 
     formatContent(content, recordLinks = []) {
@@ -758,7 +766,7 @@ class AgenticChatWidget {
             // Show export button if we have conversation history
             if (this.messages.length > 2 && assistantMsg.actionCount > 0) {
                 this.hasCompletedActions = true;
-                this.widget.find('.ai-agent-export-btn').fadeIn(300);
+                this.widget.find('.ai-agent-export-btn').show();
             }
 
             assistantMsg.isStreaming = false;

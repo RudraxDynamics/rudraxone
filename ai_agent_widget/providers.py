@@ -7,7 +7,8 @@ from nutaan_erp import AgentConfig, AgentManager
 from nutaan_erp.core.intent_engine import IntentEngine
 from nutaan_erp.core.tools import get_all_tools
 from nutaan_erp.core.tracker import ActionTracker
-from nutaan_erp.utils.context import build_system_prompt
+
+from .branding import build_pilot_prompt
 
 
 SETTINGS_DOCTYPE = "AI Agent Settings"
@@ -66,7 +67,7 @@ class ConfiguredAgentManager(AgentManager):
         self.agent = create_agent(
             model=self.model,
             tools=get_all_tools(),
-            system_prompt=build_system_prompt(context),
+            system_prompt=build_pilot_prompt(context),
         )
 
 
