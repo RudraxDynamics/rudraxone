@@ -22,13 +22,13 @@ def share_via_whatsapp(session_id: str, pdf_url: str) -> str:
     Returns:
         WhatsApp Web URL
     """
-    message = f"""Hi! Here's my Nutaan AI session report.
+    message = f"""Hi! Here's my RudraX Pilot session report.
 
 Session ID: {session_id}
 
 View Report: {pdf_url}
 
-Powered by RudraX One - AI Agent for ERPNext"""
+RudraX Pilot · RudraX One"""
     
     # Encode message for URL
     encoded_message = quote(message)
@@ -64,7 +64,7 @@ def share_via_email(session_id: str, to_email: str, session_summary: Dict[str, A
         duration_text = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
         
         # Create email content
-        subject = f"Nutaan AI Session Report - {session_id[:8]}"
+        subject = f"RudraX Pilot Session Report - {session_id[:8]}"
         
         message = f"""
         <html>
@@ -89,8 +89,7 @@ def share_via_email(session_id: str, to_email: str, session_summary: Dict[str, A
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🤖 Nutaan AI Session Report</h1>
-                    <p>Powered by RudraX One</p>
+                    <h1>🤖 RudraX Pilot Session Report</h1>
                 </div>
                 <div class="content">
                     <div class="summary">
@@ -121,7 +120,7 @@ def share_via_email(session_id: str, to_email: str, session_summary: Dict[str, A
                     </div>
                 </div>
                 <div class="footer">
-                    <p><strong>Nutaan AI</strong> - Intelligent Automation for ERPNext</p>
+                    <p><strong>RudraX Pilot</strong> · RudraX One</p>
                     <p>Generated on {frappe.utils.now_datetime().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
                 </div>
             </div>

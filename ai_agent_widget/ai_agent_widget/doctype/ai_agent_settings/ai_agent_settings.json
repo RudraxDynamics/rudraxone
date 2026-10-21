@@ -1,0 +1,42 @@
+{
+ "actions": [],
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_section", "enabled", "provider", "direct_api_key", "copy_active_api_key", "direct_api_key_provider", "temperature", "max_tokens",
+  "gemini_section", "gemini_api_key", "gemini_model",
+  "groq_section", "groq_api_key", "groq_model",
+  "openrouter_section", "openrouter_api_key", "openrouter_model",
+  "ollama_section", "ollama_base_url", "ollama_model"
+ ],
+ "fields": [
+  {"fieldname": "general_section", "fieldtype": "Section Break", "label": "General"},
+  {"fieldname": "enabled", "fieldtype": "Check", "label": "Enable AI Agent", "default": "1"},
+  {"fieldname": "provider", "fieldtype": "Select", "label": "Active Provider", "options": "Gemini\nGroq\nOpenRouter\nOllama", "default": "Gemini", "reqd": 1, "description": "Provider used for widget requests. Settings for the others remain saved."},
+  {"fieldname": "direct_api_key", "fieldtype": "Password", "label": "Legacy Direct API Key", "hidden": 1},
+  {"fieldname": "copy_active_api_key", "fieldtype": "Button", "label": "Direct API Key — Reveal / Copy", "depends_on": "eval:doc.provider!='Ollama'", "description": "Shows the active provider's saved key only when a System Manager clicks it."},
+  {"fieldname": "direct_api_key_provider", "fieldtype": "Data", "label": "Direct Key Saved For", "read_only": 1, "hidden": 1},
+  {"fieldname": "temperature", "fieldtype": "Float", "label": "Temperature", "default": "0.1", "description": "Between 0 and 1."},
+  {"fieldname": "max_tokens", "fieldtype": "Int", "label": "Maximum Output Tokens", "default": "4000"},
+  {"fieldname": "gemini_section", "fieldtype": "Section Break", "label": "Gemini", "depends_on": "eval:doc.provider=='Gemini'"},
+  {"fieldname": "gemini_api_key", "fieldtype": "Password", "label": "Gemini API Key"},
+  {"fieldname": "gemini_model", "fieldtype": "Data", "label": "Gemini Model", "description": "Enter a model available to your Google project."},
+  {"fieldname": "groq_section", "fieldtype": "Section Break", "label": "Groq", "depends_on": "eval:doc.provider=='Groq'"},
+  {"fieldname": "groq_api_key", "fieldtype": "Password", "label": "Groq API Key"},
+  {"fieldname": "groq_model", "fieldtype": "Data", "label": "Groq Model", "default": "openai/gpt-oss-20b"},
+  {"fieldname": "openrouter_section", "fieldtype": "Section Break", "label": "OpenRouter", "depends_on": "eval:doc.provider=='OpenRouter'"},
+  {"fieldname": "openrouter_api_key", "fieldtype": "Password", "label": "OpenRouter API Key"},
+  {"fieldname": "openrouter_model", "fieldtype": "Data", "label": "OpenRouter Model", "default": "openrouter/free", "description": "Free model router; selects a free model that supports the request's tools."},
+  {"fieldname": "ollama_section", "fieldtype": "Section Break", "label": "Ollama (Local)", "depends_on": "eval:doc.provider=='Ollama'"},
+  {"fieldname": "ollama_base_url", "fieldtype": "Data", "label": "Ollama URL", "default": "http://127.0.0.1:11434/v1", "description": "Address reachable from the application server."},
+  {"fieldname": "ollama_model", "fieldtype": "Data", "label": "Ollama Model", "description": "Enter an installed model that supports tool calls."}
+ ],
+ "issingle": 1,
+ "module": "AI Agent Widget",
+ "name": "AI Agent Settings",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

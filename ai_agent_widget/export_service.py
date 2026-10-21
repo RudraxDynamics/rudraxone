@@ -384,7 +384,7 @@ def generate_conversation_report_html(conversation_data: Dict[str, Any]) -> str:
     </head>
     <body>
         <div class="header">
-            <h1>Nutaan AI - Conversation Report</h1>
+            <h1>RudraX Pilot - Conversation Report</h1>
             <div class="subtitle">Generated on {current_date} at {current_time}</div>
         </div>
         
@@ -394,7 +394,7 @@ def generate_conversation_report_html(conversation_data: Dict[str, Any]) -> str:
         {summary_html}
         
         <div class="footer">
-            <p>Nutaan AI by Tecosys • Powered by RudraX One</p>
+            <p>RudraX Pilot · RudraX One</p>
         </div>
     </body>
     </html>

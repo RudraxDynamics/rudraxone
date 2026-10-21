@@ -1,5 +1,5 @@
 /**
- * Nutaan AI Widget for ERPNext
+ * RudraX Pilot AI Widget
  * Intelligent automation assistant that can navigate, create records, and fill forms
  * Professional AI-powered workspace automation
  */
@@ -8,6 +8,7 @@ frappe.provide('ai_agent_widget');
 
 class AgenticChatWidget {
     constructor() {
+        this.brandLine = 'Smarter work · Powered by RudraX One';
         this.isOpen = false;
         this.isMinimized = false;
         this.messages = [];
@@ -26,7 +27,24 @@ class AgenticChatWidget {
         const saved = localStorage.getItem('frappe_ai_agent_messages');
         if (saved) {
             try {
-                this.messages = JSON.parse(saved);
+                // Older versions stored raw tool output in chat history.
+                this.messages = JSON.parse(saved).map(msg => ({
+                    id: msg.id,
+                    role: msg.role,
+                    content: msg.content,
+                    timestamp: msg.timestamp,
+                    actionCount: msg.actionCount || (msg.toolCalls || []).length
+                }));
+                if (this.messages[0]?.id === '1' && this.messages[0].role === 'assistant') {
+                    this.messages[0].content = this.messages[0].content.replace(
+                        /\*\*(?:Nutaan AI|RudraX One)\*\*/,
+                        '**RudraX Pilot**'
+                    ).replace(
+                        'Intelligent Automation at Your Fingertips',
+                        'Smarter work starts here. Powered by RudraX One.'
+                    );
+                }
+                this.saveMessages();
             } catch (e) {
                 this.initializeChat();
             }
@@ -39,15 +57,20 @@ class AgenticChatWidget {
         this.messages = [{
             id: '1',
             role: 'assistant',
-            content: `**Nutaan AI**\n Intelligent Automation at Your Fingertips \n\nI can help you with:\n\n🎯 **Navigate** - Go to any page or document\n📝 **Create** - Create new records instantly\n✏️ **Fill Forms** - Automate data entry\n🔍 **Analyze** - Understand page content\n\nWhat would you like to automate today?`,
+            content: `**RudraX Pilot**\n Smarter work starts here. Powered by RudraX One. \n\nI can help you with:\n\n🎯 **Navigate** - Go to any page or document\n📝 **Create** - Create new records instantly\n✏️ **Fill Forms** - Automate data entry\n🔍 **Analyze** - Understand page content\n\nWhat would you like to automate today?`,
             timestamp: new Date()
         }];
     }
 
     saveMessages() {
-        if (this.messages.length > 1) {
-            localStorage.setItem('frappe_ai_agent_messages', JSON.stringify(this.messages));
-        }
+        const safeMessages = this.messages.map(msg => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            actionCount: msg.actionCount || 0
+        }));
+        localStorage.setItem('frappe_ai_agent_messages', JSON.stringify(safeMessages));
     }
 
     render() {
@@ -58,7 +81,7 @@ class AgenticChatWidget {
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                     </svg>
-                    <span class="ai-agent-tooltip">RudraX One- powered by Nutaan AI ✨</span>
+                    <span class="ai-agent-tooltip">RudraX Pilot ✨</span>
                 </div>
                 
                 <!-- Chat Window -->
@@ -72,8 +95,8 @@ class AgenticChatWidget {
                                 <div class="ai-agent-status"></div>
                             </div>
                             <div class="ai-agent-title">
-                                <h3>RudraX One- powered by Nutaan AI</h3>
-                                <p class="ai-agent-subtitle">Ready to assist</p>
+                                <h3>RudraX Pilot</h3>
+                                <p class="ai-agent-subtitle">${this.brandLine}</p>
                             </div>
                         </div>
                         <div class="ai-agent-header-actions">
@@ -318,26 +341,13 @@ class AgenticChatWidget {
 
     createMessageElement(message) {
         const isUser = message.role === 'user';
-        const toolCallsHtml = message.toolCalls ? this.renderToolCalls(message.toolCalls) : '';
-
-        // Tool calls FIRST, then final answer
         return `
             <div class="ai-agent-message ${isUser ? 'user' : 'assistant'}">
                 <div class="ai-agent-message-content">
-                    ${toolCallsHtml}
-                    <div class="ai-agent-message-text">${this.formatContent(message.content)}</div>
+                    <div class="ai-agent-message-text">${this.formatContent(message.content || (message.isStreaming ? 'Working on it…' : ''))}</div>
                 </div>
             </div>
         `;
-    }
-
-    renderToolCalls(toolCalls) {
-        return toolCalls.map(tc => `
-            <div class="ai-agent-tool-call ${tc.executing ? 'executing' : 'completed'}">
-                <div class="ai-agent-tool-name">⚡ ${tc.name}</div>
-                ${tc.result ? `<div class="ai-agent-tool-result">${tc.result}</div>` : ''}
-            </div>
-        `).join('');
     }
 
     formatContent(content) {
@@ -346,8 +356,9 @@ class AgenticChatWidget {
         // Ensure content is a string
         const textContent = typeof content === 'string' ? content : String(content);
 
-        // Convert markdown-style formatting
-        return textContent
+        // Escape model output before applying lightweight formatting.
+        const safeContent = $('<div>').text(textContent).html();
+        return safeContent
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\n/g, '<br>');
     }
@@ -401,19 +412,6 @@ class AgenticChatWidget {
         return String(content);
     }
 
-    shouldShowToolCall(toolName) {
-        // Hide technical/internal tools from UI to keep it clean and user-friendly
-        const hiddenTools = [
-            'get_doctype_list',        // Internal data fetching
-            'validate_doctype_exists',  // Backend validation
-            'search_doctype',          // Search operations
-            'get_validation_errors',   // Error checking
-            'add_table_row'            // Low-level table manipulation
-        ];
-
-        return !hiddenTools.includes(toolName);
-    }
-
     async sendMessage() {
         const text = this.input.val().trim();
         if (!text || this.isLoading) return;
@@ -434,7 +432,6 @@ class AgenticChatWidget {
             id: (Date.now() + 1).toString(),
             role: 'assistant',
             content: '',
-            toolCalls: [],
             isStreaming: true,
             timestamp: new Date()
         };
@@ -453,7 +450,7 @@ class AgenticChatWidget {
         } finally {
             this.isLoading = false;
             this.currentToolCall = null;
-            this.updateSubtitle('Ready');
+            this.updateSubtitle(this.brandLine);
             this.saveMessages();
         }
     }
@@ -491,93 +488,40 @@ class AgenticChatWidget {
                 throw new Error(result.error);
             }
 
-            // Production: Only log errors, not debug info
+            // Keep internal screen/trace output out of chat history.
+            const failedActions = [];
+            const informationResults = [];
+            let navigationSummary = '';
+            let otherActionCount = 0;
+            assistantMsg.actionCount = 0;
 
-            // Process agent_steps for step-by-step display
-            assistantMsg.toolCalls = assistantMsg.toolCalls || [];
-            assistantMsg.agentSteps = result.agent_steps || [];
+            for (const step of result.agent_steps || []) {
+                if (step.type !== 'tool_call') continue;
 
-            // Collect tool execution results to send back to agent
-            const toolExecutionResults = [];
-            let hasErrors = false;
-
-            // Process each step from the agent
-            for (const step of assistantMsg.agentSteps) {
-                if (step.type === 'tool_call') {
-                    // Skip technical tools from UI display
-                    if (!this.shouldShowToolCall(step.tool)) {
-                        // Execute silently without showing in UI
-                        const toolOutput = await this.executeToolCall(step.tool, step.args);
-                        toolExecutionResults.push({
-                            tool: step.tool,
-                            result: toolOutput
-                        });
-                        if (toolOutput.includes('❌') || toolOutput.includes('⚠️')) {
-                            hasErrors = true;
-                        }
-                        continue; // Skip UI rendering
-                    }
-
-                    this.updateSubtitle(`🔧 ${step.tool}...`);
-
-                    const toolCallUI = {
-                        name: step.tool,
-                        args: step.args,
-                        executing: true
-                    };
-                    assistantMsg.toolCalls.push(toolCallUI);
-                    this.renderMessages();
-
-                    // Execute tool on frontend
-                    const toolOutput = await this.executeToolCall(step.tool, step.args);
-                    toolCallUI.result = toolOutput;
-                    toolCallUI.executing = false;
-                    this.renderMessages();
-
-                    // Collect result for feedback
-                    toolExecutionResults.push({
-                        tool: step.tool,
-                        result: toolOutput
-                    });
-
-                    if (toolOutput.includes('❌') || toolOutput.includes('⚠️')) {
-                        hasErrors = true;
-                    }
-
-                    await this.wait(400);
-
-                } else if (step.type === 'tool_result') {
-                    this.updateSubtitle(`✅ Tool completed`);
-                    await this.wait(200);
-
-                } else if (step.type === 'response') {
-                    if (step.content && !step.content.includes('tool_calls')) {
-                        // Don't show response yet - we need to check if errors occurred
-                        if (!hasErrors) {
-                            assistantMsg.content = step.content;
-                            this.renderMessages();
-                        }
-                    }
+                this.updateSubtitle('Working on it...');
+                const toolOutput = await this.executeToolCall(step.tool, step.args || {});
+                assistantMsg.actionCount++;
+                if (toolOutput.startsWith('❌') || toolOutput.startsWith('⚠️')) {
+                    failedActions.push(step.tool);
+                } else if (step.tool === 'navigate') {
+                    navigationSummary = step.args?.name
+                        ? `Opened ${step.args.doctype} ${step.args.name}.`
+                        : `Opened the ${step.args?.doctype || 'requested'} list.`;
+                } else if (['search_doctype', 'get_doctype_list', 'get_field_value'].includes(step.tool)) {
+                    informationResults.push(toolOutput);
+                } else if (step.tool !== 'analyze_screen') {
+                    otherActionCount++;
                 }
             }
 
-
-            // Check if we have a final response from the agent
-            if (result.content) {
-                const cleanContent = this.cleanResponseContent(result.content);
-                assistantMsg.content = cleanContent;
-            } else if (hasErrors && toolExecutionResults.length > 0) {
-                // Only show raw errors if agent didn't provide a response
-                const errorSummary = toolExecutionResults
-                    .filter(r => r.result.includes('❌') || r.result.includes('⚠️'))
-                    .map(r => `${r.tool}: ${r.result}`)
-                    .join('\n');
-
-                assistantMsg.content = `⚠️ Some actions encountered issues:\n\n${errorSummary}\n\nPlease review the errors above or try a different approach.`;
-            } else if (assistantMsg.toolCalls.length > 0) {
-                assistantMsg.content = '✅ Task completed successfully';
+            if (failedActions.length) {
+                assistantMsg.content = "I couldn't complete the request. Please check the page and try again.";
+            } else if (informationResults.length) {
+                assistantMsg.content = [navigationSummary, ...informationResults].filter(Boolean).join('\n\n');
+            } else if (navigationSummary && !otherActionCount) {
+                assistantMsg.content = navigationSummary;
             } else {
-                assistantMsg.content = '✅ Done';
+                assistantMsg.content = this.cleanResponseContent(result.content) || 'Done.';
             }
 
 
@@ -587,14 +531,14 @@ class AgenticChatWidget {
             }
 
             // Show export button if we have conversation history
-            if (this.messages.length > 2 && assistantMsg.toolCalls && assistantMsg.toolCalls.length > 0) {
+            if (this.messages.length > 2 && assistantMsg.actionCount > 0) {
                 this.hasCompletedActions = true;
                 this.widget.find('.ai-agent-export-btn').fadeIn(300);
             }
 
             assistantMsg.isStreaming = false;
             this.renderMessages();
-            this.updateSubtitle('Ready');
+            this.updateSubtitle(this.brandLine);
             this.saveMessages();
 
         } catch (error) {
@@ -613,23 +557,26 @@ class AgenticChatWidget {
             switch (action) {
                 case 'navigate':
                     if (actionData.name) {
-                        frappe.set_route('Form', actionData.doctype, actionData.name);
+                        await frappe.set_route('Form', actionData.doctype, actionData.name);
                     } else {
-                        frappe.set_route('List', actionData.doctype);
+                        await frappe.set_route('List', actionData.doctype);
                     }
-                    await this.wait(500);
+                    if (frappe.get_route()[1] !== actionData.doctype) {
+                        return `❌ Could not open ${actionData.doctype}`;
+                    }
                     return `✅ Navigated to ${actionData.doctype}`;
 
                 case 'create_doc':
                     // Use set_route to ensure form opens in full screen (not dialog)
-                    frappe.set_route('Form', actionData.doctype, 'new');
-                    await this.wait(500);
+                    await frappe.set_route('Form', actionData.doctype, 'new');
                     return `✅ Creating new ${actionData.doctype}`;
 
                 case 'set_field':
                     if (cur_frm) {
                         await cur_frm.set_value(actionData.fieldname, actionData.value);
-                        return `✅ Set ${actionData.fieldname} to "${actionData.value}"`;
+                        return this.isSensitiveField(actionData.fieldname)
+                            ? `✅ Set ${actionData.fieldname}`
+                            : `✅ Set ${actionData.fieldname} to "${actionData.value}"`;
                     }
                     return `❌ No form is currently open`;
 
@@ -657,16 +604,18 @@ class AgenticChatWidget {
             switch (toolName) {
                 case 'navigate':
                     if (args.name) {
-                        frappe.set_route('Form', args.doctype, args.name);
+                        await frappe.set_route('Form', args.doctype, args.name);
                     } else {
-                        frappe.set_route('List', args.doctype);
+                        await frappe.set_route('List', args.doctype);
                     }
-                    await this.wait(500);
+                    if (frappe.get_route()[1] !== args.doctype) {
+                        return `❌ Could not open ${args.doctype}`;
+                    }
                     return `✅ Navigated to ${args.doctype}`;
 
                 case 'create_doc':
                     // Use set_route to ensure form opens in full screen (not dialog)
-                    frappe.set_route('Form', args.doctype, 'new');
+                    await frappe.set_route('Form', args.doctype, 'new');
                     // Wait for proper form load
                     let formReady = false;
                     for (let i = 0; i < 20; i++) {
@@ -726,7 +675,9 @@ class AgenticChatWidget {
                             if (!actualValue && args.value) {
                                 return `⚠️ ${args.fieldname} could not be set. It might be read-only or invalid.`;
                             }
-                            return `✅ Set ${args.fieldname} to "${args.value}"`;
+                            return this.isSensitiveField(args.fieldname)
+                                ? `✅ Set ${args.fieldname}`
+                                : `✅ Set ${args.fieldname} to "${args.value}"`;
                         } catch (e) {
                             return `❌ Failed to set ${args.fieldname}: ${e.message || e || 'Unknown error'}`;
                         }
@@ -876,6 +827,9 @@ class AgenticChatWidget {
 
                 case 'get_field_value':
                     if (cur_frm) {
+                        if (this.isSensitiveField(args.fieldname)) {
+                            return `❌ Cannot read protected field ${args.fieldname}`;
+                        }
                         const value = cur_frm.doc[args.fieldname];
                         return `📋 ${args.fieldname} = "${value || '(empty)'}"`;
                     }
@@ -1081,6 +1035,12 @@ class AgenticChatWidget {
         return buttons.length > 0 ? buttons[0] : null;
     }
 
+    isSensitiveField(fieldname) {
+        const field = cur_frm?.fields_dict?.[fieldname];
+        return field?.df?.fieldtype === 'Password' ||
+            /api.?key|password|secret|token|credential|private.?key/i.test(fieldname || '');
+    }
+
     analyzeScreen(purpose) {
         const route = frappe.get_route();
         const routeStr = frappe.get_route_str();
@@ -1088,64 +1048,23 @@ class AgenticChatWidget {
         const viewType = route[0]; // List, Form, etc.
         const docType = route[1];
 
-        // 1. Identify Context
-        let contextSummary = `📄 **Page**: ${title}\n📍 **Type**: ${viewType} View (${docType})`;
+        // Page type and title are enough for the widget's navigation feedback.
+        // Do not copy form values into chat history or exportable session data.
+        let contextSummary = `Page: ${docType || title}\nView: ${viewType}`;
 
-        // 2. Extract Key Actions (Buttons) - Filtered & Cleaned
-        // Common standard buttons to ignore in summary unless needed
-        const ignoredButtons = ['Help', 'Menu', 'Toggle Theme', 'Close', 'Minimize', 'User', 'Notifications', 'Reload'];
-
-        const keyButtons = $('button')
-            .not('.ai-agent-widget button, .dropdown-menu button') // Exclude widget & hidden dropdowns
-            .filter(':visible')
-            .map(function () { return $(this).text().trim(); })
-            .get()
-            .filter(text => text && text.length > 2 && !ignoredButtons.some(ig => text.includes(ig)))
-            .slice(0, 8); // Top 8 relevant buttons
-
-        const actionSummary = keyButtons.length ? `\n🔘 **Actions**: ${keyButtons.join(', ')}` : '';
-
-        // 3. Form Details (if open)
         let dataSummary = '';
-        if (cur_frm && cur_frm.docname) {
-            const status = cur_frm.doc.status || cur_frm.doc.docstatus === 1 ? 'Submitted' : 'Draft';
-            dataSummary = `\n📝 **Document**: ${cur_frm.docname} (${status})`;
-
-            // Get key fields (mandatory or with values)
-            const importantFields = Object.keys(cur_frm.fields_dict)
-                .filter(k => {
-                    const f = cur_frm.fields_dict[k];
-                    return f.df.reqd || (cur_frm.doc[k] && !['owner', 'creation', 'modified', 'docstatus'].includes(k));
-                })
-                .slice(0, 10);
-
-            if (importantFields.length > 0) {
-                const fieldValues = importantFields.map(k => `${cur_frm.fields_dict[k].df.label}: ${cur_frm.doc[k] || '(empty)'}`).join(', ');
-                dataSummary += `\n📋 **Key Data**: ${fieldValues}`;
-            }
-        }
-
-        // 4. List View Details (if active)
+        // List View Details (if active)
         if (viewType === 'List' && frappe.views.list_view && frappe.views.list_view.data) {
             const totalCount = frappe.views.list_view.data.length || 0;
-            dataSummary = `\n📋 **List Data**: Showing ${totalCount} records.`;
+            dataSummary = `\nShowing ${totalCount} records.`;
         }
 
-        // 5. Workspace/Dashboard Details
+        // Workspace/Dashboard Details
         if ($('.widget-group').length > 0) {
-            const shortcuts = $('.widget-shortcut .widget-title').filter(':visible').map((i, el) => $(el).text().trim()).get().slice(0, 8);
-            const cards = $('.widget-card .widget-title').filter(':visible').map((i, el) => $(el).text().trim()).get().slice(0, 5);
-            const charts = $('.widget-chart .widget-title').filter(':visible').map((i, el) => $(el).text().trim()).get().slice(0, 3);
-
-            if (shortcuts.length || cards.length || charts.length) {
-                dataSummary += `\n📌 **Dashboard Contents**:`;
-                if (shortcuts.length) dataSummary += `\n   • Shortcuts: ${shortcuts.join(', ')}`;
-                if (cards.length) dataSummary += `\n   • Cards: ${cards.join(', ')}`;
-                if (charts.length) dataSummary += `\n   • Charts: ${charts.join(', ')}`;
-            }
+            dataSummary += `\nDashboard available.`;
         }
 
-        return `📊 **Screen Analysis** (${purpose})\n${contextSummary}${dataSummary}${actionSummary}`;
+        return `${contextSummary}${dataSummary}`;
     }
 
     captureValidationErrors() {
@@ -1242,7 +1161,7 @@ class AgenticChatWidget {
                                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                                     </svg>
                                     <div>
-                                        <h3 style="margin: 0; font-size: 20px; font-weight: 600;">Nutaan AI Conversation</h3>
+                                        <h3 style="margin: 0; font-size: 20px; font-weight: 600;">RudraX Pilot Conversation</h3>
                                         <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 13px;">Complete Chat History</p>
                                     </div>
                                 </div>
@@ -1290,12 +1209,10 @@ class AgenticChatWidget {
         const userMessages = this.messages.filter(m => m.role === 'user');
         const assistantMessages = this.messages.filter(m => m.role === 'assistant');
 
-        // Count total actions from tool calls
+        // Count completed actions without storing their raw output.
         let totalActions = 0;
         assistantMessages.forEach(msg => {
-            if (msg.toolCalls && msg.toolCalls.length > 0) {
-                totalActions += msg.toolCalls.length;
-            }
+            totalActions += msg.actionCount || 0;
         });
 
         // Get first user message
@@ -1379,7 +1296,7 @@ class AgenticChatWidget {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Nutaan_AI_Conversation_${new Date().toISOString().split('T')[0]}.pdf`;
+            link.download = `RudraX_Pilot_Conversation_${new Date().toISOString().split('T')[0]}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1458,7 +1375,7 @@ class AgenticChatWidget {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Nutaan_AI_Report_${exportResult.session_id.substring(0, 8)}.pdf`;
+            link.download = `RudraX_Pilot_Report_${exportResult.session_id.substring(0, 8)}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

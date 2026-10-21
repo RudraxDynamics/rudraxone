@@ -10,8 +10,8 @@ from frappe import _
 import json
 
 try:
-    from nutaan_erp import AgentManager, AgentConfig
     from nutaan_erp.utils import build_frappe_context
+    from .providers import get_configured_manager
     HAS_SDK = True
 except ImportError:
     HAS_SDK = False
@@ -45,24 +45,8 @@ def agent_stream():
     request_context = data.get("context", {})
     conversation_history = data.get("history", [])
     
-    # Get Frappe site configuration
-    api_key = frappe.conf.get("gemini_api_key")
-    model_name = frappe.conf.get("gemini_model", "gemini-2.0-flash-exp")
-    
-    if not api_key:
-        return {
-            "error": "Gemini API key not configured in site_config.json",
-            "success": False
-        }
-    
     try:
-        # Create SDK configuration
-        config = AgentConfig(
-            api_key=api_key,
-            model_name=model_name,
-            temperature=0.1,
-            max_tokens=4000
-        )
+        manager = get_configured_manager()
         
         # Get user information
         user = frappe.get_doc("User", frappe.session.user)
@@ -77,13 +61,21 @@ def agent_stream():
         )
         
         # Create agent manager and execute
-        manager = AgentManager(config)
         result = manager.execute(
             message=message,
             context=context,
             history=conversation_history
         )
         
+        # The browser only needs action requests and the final answer.
+        # Do not send internal traces or intermediate tool results.
+        result.pop("traceback", None)
+        result.pop("debug_events", None)
+        result.pop("tool_calls", None)
+        result["agent_steps"] = [
+            step for step in result.get("agent_steps", [])
+            if step.get("type") == "tool_call"
+        ]
         return result
         
     except Exception as e:
@@ -93,11 +85,9 @@ def agent_stream():
             "AI Agent Widget"
         )
         
-        import traceback
         return {
             "error": str(e),
-            "success": False,
-            "traceback": traceback.format_exc()
+            "success": False
         }
 
 
@@ -170,7 +160,7 @@ def download_session_pdf(session_id):
             pdf_bytes = frappe.cache().get_value(f"pdf_{temp_key}")
             if pdf_bytes:
                 # Don't delete - allow multiple downloads
-                frappe.local.response.filename = f"Nutaan_AI_Report_{session_id[:8]}.pdf"
+                frappe.local.response.filename = f"RudraX_Pilot_Report_{session_id[:8]}.pdf"
                 frappe.local.response.filecontent = pdf_bytes
                 frappe.local.response.type = "pdf"
                 return

@@ -1,4 +1,4 @@
-/* Nutaan AI Widget Styles */
+/* RudraX Pilot Widget Styles */
 
 .ai-agent-widget {
     position: fixed;
@@ -149,6 +149,7 @@
 
 .ai-agent-title h3 {
     margin: 0;
+    color: #fff !important;
     font-size: 17px;
     font-weight: 600;
     letter-spacing: -0.3px;
@@ -156,9 +157,10 @@
 
 .ai-agent-subtitle {
     margin: 0;
+    color: #fff !important;
     margin-top: 2px;
     font-size: 12px;
-    opacity: 0.85;
+    opacity: 1;
     font-weight: 400;
 }
 

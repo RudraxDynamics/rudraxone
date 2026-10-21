@@ -11,11 +11,11 @@ app_license = "MIT"
 
 # Apps to include JS / CSS assets
 app_include_js = [
-    "/assets/ai_agent_widget/js/widget.js"
+    "/assets/ai_agent_widget/js/widget.js?v=20261021-rudrax-pilot-brand"
 ]
 
 app_include_css = [
-    "/assets/ai_agent_widget/css/widget.css"
+    "/assets/ai_agent_widget/css/widget.css?v=20261021-rudrax-pilot-brand"
 ]
 
 # Include JS at page level (loaded on every page)
