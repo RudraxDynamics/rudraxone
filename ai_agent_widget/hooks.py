@@ -11,7 +11,7 @@ app_license = "MIT"
 
 # Apps to include JS / CSS assets
 app_include_js = [
-    "/assets/ai_agent_widget/js/widget.js?v=20261021-field-value-1"
+    "/assets/ai_agent_widget/js/widget.js?v=20261021-stepwise-actions-3"
 ]
 
 app_include_css = [

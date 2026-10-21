@@ -41,13 +41,9 @@ def agent_stream():
     
     # Get request data
     data = json.loads(frappe.request.data)
-    message = data.get("message", "")
     request_context = data.get("context", {})
-    conversation_history = data.get("history", [])
     
     try:
-        manager = get_configured_manager()
-        
         # Get user information
         user = frappe.get_doc("User", frappe.session.user)
         roles = frappe.get_roles(frappe.session.user)
@@ -60,23 +56,9 @@ def agent_stream():
             user_full_name=user.full_name
         )
         
-        # Create agent manager and execute
-        result = manager.execute(
-            message=message,
-            context=context,
-            history=conversation_history
-        )
-        
-        # The browser only needs action requests and the final answer.
-        # Do not send internal traces or intermediate tool results.
-        result.pop("traceback", None)
-        result.pop("debug_events", None)
-        result.pop("tool_calls", None)
-        result["agent_steps"] = [
-            step for step in result.get("agent_steps", [])
-            if step.get("type") == "tool_call"
-        ]
-        return result
+        from .agent_flow import run_step
+
+        return run_step(data, frappe.session.user, context)
         
     except Exception as e:
         # Log error for debugging

@@ -488,104 +488,59 @@ class AgenticChatWidget {
 
     async streamResponse(message, assistantMsg) {
         try {
-            // The provider plans first; the browser then performs its actions.
-
-            const response = await fetch('/api/method/ai_agent_widget.api.agent_stream', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Frappe-CSRF-Token': frappe.csrf_token
-                },
-                signal: this.requestController.signal,
-                body: JSON.stringify({
-                    message: message,
-                    context: {
-                        currentPath: frappe.get_route_str(),
-                        user: frappe.session.user
-                    },
-                    history: this.messages.filter(m => m.id !== assistantMsg.id).map(m => ({
-                        role: m.role,
-                        content: m.content || ''
-                    }))
-                })
-            });
-
-            this.throwIfCancelled();
-            if (!response.ok) throw new Error(`Server error: ${response.status}`);
-
-            const data = await response.json();
-            this.throwIfCancelled();
-            const result = data.message || data;
-
-            if (result.error) {
-                throw new Error(result.error);
-            }
-
-            // Keep internal screen/trace output out of chat history.
-            const failedActions = [];
-            const informationResults = [];
-            let navigationSummary = '';
-            let otherActionCount = 0;
+            let sessionId = null;
+            let actionResult = null;
+            let savedDocument = null;
             assistantMsg.actionCount = 0;
-            const actions = (result.agent_steps || []).filter(step => step.type === 'tool_call');
 
-            if (actions.length) {
-                this.showProgress('Preparing actions…', 0, actions.length);
-            } else {
-                this.showProgress('Preparing your answer…');
-            }
-
-            for (const step of actions) {
+            while (true) {
                 this.throwIfCancelled();
-                this.showProgress(
-                    this.describeAction(step.tool, step.args || {}),
-                    assistantMsg.actionCount,
-                    actions.length
-                );
-                this.currentToolCall = step.tool;
+                this.showProgress(assistantMsg.actionCount ? 'Checking the result and choosing the next action…' : 'Thinking through your request…');
+                const response = await fetch('/api/method/ai_agent_widget.api.agent_stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Frappe-CSRF-Token': frappe.csrf_token
+                    },
+                    signal: this.requestController.signal,
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        action_result: actionResult,
+                        saved_document: savedDocument,
+                        message: sessionId ? undefined : message,
+                        context: { currentPath: frappe.get_route_str() },
+                        history: sessionId ? undefined : this.messages.filter(m => m.id !== assistantMsg.id).map(m => ({
+                            role: m.role,
+                            content: m.content || ''
+                        }))
+                    })
+                });
+                this.throwIfCancelled();
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                const data = await response.json();
+                this.throwIfCancelled();
+                const result = data.message || data;
+                if (result.error) throw new Error(result.error);
+                sessionId = result.session_id;
+
+                if (result.done) {
+                    assistantMsg.content = this.cleanResponseContent(result.content) || 'Done.';
+                    break;
+                }
+                if (!result.action?.tool) throw new Error('The assistant did not return an action.');
+
+                const { tool, args = {} } = result.action;
+                this.showProgress(this.describeAction(tool, args));
+                this.currentToolCall = tool;
                 assistantMsg.actionStarted = true;
-                const toolOutput = await this.executeToolCall(step.tool, step.args || {});
+                this.lastSavedDocument = null;
+                actionResult = await this.executeToolCall(tool, args);
                 this.throwIfCancelled();
+                savedDocument = this.lastSavedDocument;
                 this.currentToolCall = null;
                 assistantMsg.actionStarted = false;
                 assistantMsg.actionCount++;
-                this.showProgress(
-                    `Completed ${assistantMsg.actionCount} of ${actions.length} actions`,
-                    assistantMsg.actionCount,
-                    actions.length
-                );
-                if (toolOutput.startsWith('❌') || toolOutput.startsWith('⚠️')) {
-                    failedActions.push(step.tool);
-                } else if (step.tool === 'navigate') {
-                    navigationSummary = step.args?.name
-                        ? `Opened ${step.args.doctype} ${step.args.name}.`
-                        : `Opened the ${step.args?.doctype || 'requested'} list.`;
-                } else if (['search_doctype', 'get_doctype_list', 'get_field_value'].includes(step.tool)) {
-                    informationResults.push(toolOutput);
-                } else if (step.tool !== 'analyze_screen') {
-                    otherActionCount++;
-                }
-            }
-
-            if (failedActions.length && navigationSummary) {
-                const remainingFailures = failedActions.filter(tool => tool !== 'analyze_screen');
-                assistantMsg.content = remainingFailures.length
-                    ? `${navigationSummary} I couldn't complete the remaining action. Please review the page.`
-                    : navigationSummary;
-            } else if (failedActions.length) {
-                assistantMsg.content = "I couldn't complete the request. Please check the page and try again.";
-            } else if (informationResults.length) {
-                assistantMsg.content = [navigationSummary, ...informationResults].filter(Boolean).join('\n\n');
-            } else if (navigationSummary && !otherActionCount) {
-                assistantMsg.content = navigationSummary;
-            } else {
-                assistantMsg.content = this.cleanResponseContent(result.content) || 'Done.';
-            }
-
-
-            // Store session data if available and show export button
-            if (result.session_data && result.session_data.total_actions > 0) {
-                this.currentSessionData = result.session_data;
+                this.showProgress(`Completed ${assistantMsg.actionCount} action${assistantMsg.actionCount === 1 ? '' : 's'}…`);
             }
 
             // Show export button if we have conversation history
@@ -724,30 +679,19 @@ class AgenticChatWidget {
                     return `✅ Navigated to ${args.doctype}`;
 
                 case 'create_doc':
-                    // Use set_route to ensure form opens in full screen (not dialog)
                     await frappe.set_route('Form', args.doctype, 'new');
-                    // Wait for proper form load
                     let formReady = false;
                     for (let i = 0; i < 20; i++) {
-                        if (cur_frm && cur_frm.docname && !cur_frm.docname.includes('New ' + args.doctype + ' 1')) {
-                            formReady = true;
-                            break;
-                        }
-                        // Note: Frappe temporary names can vary, but generally we just need cur_frm to exist and match doctype
-                        if (cur_frm && cur_frm.doctype === args.doctype) {
+                        if (cur_frm?.doctype === args.doctype &&
+                            (cur_frm.is_new ? cur_frm.is_new() : cur_frm.doc?.__islocal)) {
                             formReady = true;
                             break;
                         }
                         await this.wait(200);
                     }
-
-                    if (!formReady || !cur_frm) {
-                        return `⚠️ Form for ${args.doctype} opened but not fully loaded. Please wait...`;
-                    }
-
-                    // Extra wait to ensure all field bindings are complete
-                    await this.wait(1000);
-                    return `✅ ${args.doctype} form ready`;
+                    return formReady
+                        ? `✅ Opened an unsaved ${args.doctype} form. No record has been created yet.`
+                        : `⚠️ The new ${args.doctype} form did not finish loading.`;
 
                 case 'set_field':
                     // Retry logic for form loading
@@ -795,6 +739,30 @@ class AgenticChatWidget {
                     return `❌ No form is currently open`;
 
                 case 'click_button':
+                    if (/^(save|update)$/i.test(args.button_text || '')) {
+                        if (!cur_frm) return '❌ No form is currently open';
+                        const form = cur_frm;
+                        const wasNew = Boolean(form.is_new ? form.is_new() : form.doc?.__islocal);
+                        try {
+                            const saveResponse = await Promise.race([
+                                new Promise(resolve => {
+                                    form.save('Save', resolve, null, () => resolve({ exc: true }));
+                                }),
+                                this.wait(30000).then(() => { throw new Error('Save timed out; check the form before retrying'); })
+                            ]);
+                            const returnedDocument = saveResponse?.docs?.find(doc =>
+                                doc.doctype === form.doctype
+                            );
+                            const name = returnedDocument?.name;
+                            if (saveResponse?.exc || !name || returnedDocument.__islocal) {
+                                return `❌ ${form.doctype} was not saved. ${this.captureValidationErrors() || 'Check the form for validation errors.'}`;
+                            }
+                            this.lastSavedDocument = { doctype: form.doctype, name, created: wasNew };
+                            return `✅ Saved ${form.doctype} ${name}`;
+                        } catch (error) {
+                            return `❌ Save failed: ${this.captureValidationErrors() || error.message || 'Check the form.'}`;
+                        }
+                    }
                     const button = this.findButton(args.button_text);
                     if (button) {
                         if (!$(button).is(':visible')) {
