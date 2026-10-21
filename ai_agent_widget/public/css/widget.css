@@ -87,6 +87,10 @@
     display: none;
 }
 
+.ai-agent-window.minimized .ai-agent-progress {
+    display: none !important;
+}
+
 .ai-agent-window.minimized .ai-agent-header {
     border-radius: 16px;
 }
@@ -291,6 +295,104 @@
     color: #6b7280;
     margin-top: 5px;
     line-height: 1.5;
+}
+
+/* Request progress */
+.ai-agent-progress {
+    padding: 11px 16px 10px;
+    border-top: 1px solid #e8eaf6;
+    background: #f7f8ff;
+    color: #344054;
+}
+
+.ai-agent-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 30px;
+}
+
+.ai-agent-progress-spinner {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    border: 2px solid #d9defc;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: ai-agent-spin 0.8s linear infinite;
+}
+
+.ai-agent-progress-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.ai-agent-progress-count {
+    flex-shrink: 0;
+    color: #667085;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ai-agent-cancel-btn {
+    flex-shrink: 0;
+    min-height: 30px;
+    padding: 5px 10px;
+    border: 1px solid #d9defc;
+    border-radius: 8px;
+    background: #fff;
+    color: #475467;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ai-agent-cancel-btn:hover:not(:disabled) {
+    border-color: #667eea;
+    color: #4f5fc5;
+}
+
+.ai-agent-cancel-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.ai-agent-progress-track {
+    height: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: #e2e7fb;
+}
+
+.ai-agent-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    transition: width 0.25s ease;
+}
+
+.ai-agent-progress.is-indeterminate .ai-agent-progress-fill {
+    animation: ai-agent-progress-move 1.35s ease-in-out infinite;
+}
+
+@keyframes ai-agent-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes ai-agent-progress-move {
+    from { transform: translateX(-120%); }
+    to { transform: translateX(320%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ai-agent-progress-spinner,
+    .ai-agent-progress.is-indeterminate .ai-agent-progress-fill {
+        animation: none;
+    }
 }
 
 /* Input Area */

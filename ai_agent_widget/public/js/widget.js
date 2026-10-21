@@ -13,6 +13,8 @@ class AgenticChatWidget {
         this.isMinimized = false;
         this.messages = [];
         this.isLoading = false;
+        this.isCancelled = false;
+        this.requestController = null;
         this.currentToolCall = null;
         this.currentSessionData = null;  // Store session data for export
         this.hasCompletedActions = false; // Track if any actions were performed
@@ -118,6 +120,18 @@ class AgenticChatWidget {
                     </div>
                     
                     <div class="ai-agent-messages"></div>
+
+                    <div class="ai-agent-progress" style="display: none;">
+                        <div class="ai-agent-progress-row">
+                            <span class="ai-agent-progress-spinner" aria-hidden="true"></span>
+                            <span class="ai-agent-progress-text" role="status" aria-live="polite">Thinking through your request…</span>
+                            <span class="ai-agent-progress-count" aria-hidden="true"></span>
+                            <button type="button" class="ai-agent-cancel-btn">Cancel</button>
+                        </div>
+                        <div class="ai-agent-progress-track" aria-hidden="true">
+                            <div class="ai-agent-progress-fill"></div>
+                        </div>
+                    </div>
                     
                     <div class="ai-agent-input-area">
                         <div class="ai-agent-quick-actions">
@@ -152,7 +166,7 @@ class AgenticChatWidget {
                         </div>
                         <div class="ai-agent-input-wrapper">
                             <textarea class="ai-agent-input" placeholder="How can I help you today?" rows="1"></textarea>
-                            <button class="ai-agent-send-btn">
+                            <button class="ai-agent-send-btn" type="button" aria-label="Send message">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <line x1="22" y1="2" x2="11" y2="13"></line>
                                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -169,6 +183,11 @@ class AgenticChatWidget {
         this.floatBtn = this.widget.find('.ai-agent-float-button');
         this.window = this.widget.find('.ai-agent-window');
         this.messagesContainer = this.widget.find('.ai-agent-messages');
+        this.progressPanel = this.widget.find('.ai-agent-progress');
+        this.progressText = this.widget.find('.ai-agent-progress-text');
+        this.progressCount = this.widget.find('.ai-agent-progress-count');
+        this.progressFill = this.widget.find('.ai-agent-progress-fill');
+        this.cancelBtn = this.widget.find('.ai-agent-cancel-btn');
         this.input = this.widget.find('.ai-agent-input');
 
         this.widget.show();
@@ -190,6 +209,7 @@ class AgenticChatWidget {
 
         // Send button
         this.widget.find('.ai-agent-send-btn').on('click', () => this.sendMessage());
+        this.cancelBtn.on('click', () => this.cancelRequest());
 
         // Enter to send
         this.input.on('keydown', (e) => {
@@ -286,6 +306,7 @@ class AgenticChatWidget {
     }
 
     clearChat() {
+        if (this.isLoading) this.cancelRequest();
         // Clear PDF cache if it exists
         if (this.currentPdfKey) {
             fetch('/api/method/frappe.cache_manager.clear_value', {
@@ -439,17 +460,27 @@ class AgenticChatWidget {
         this.renderMessages();
 
         this.isLoading = true;
-        this.updateSubtitle('Processing...');
+        this.isCancelled = false;
+        this.requestController = new AbortController();
+        this.widget.find('.ai-agent-send-btn').prop('disabled', true);
+        this.cancelBtn.prop('disabled', false);
+        this.showProgress('Thinking through your request…');
 
         try {
             await this.streamResponse(text, assistantMsg);
         } catch (error) {
             console.error('Error:', error);
-            assistantMsg.content = `❌ Error: ${error.message}`;
+            assistantMsg.content = this.isCancelled || error.name === 'AbortError'
+                ? this.cancelledMessage(assistantMsg.actionCount || 0, assistantMsg.actionStarted)
+                : `❌ Error: ${error.message}`;
+            assistantMsg.isStreaming = false;
             this.renderMessages();
         } finally {
             this.isLoading = false;
+            this.requestController = null;
             this.currentToolCall = null;
+            this.progressPanel.hide();
+            this.widget.find('.ai-agent-send-btn').prop('disabled', false);
             this.updateSubtitle(this.brandLine);
             this.saveMessages();
         }
@@ -457,8 +488,7 @@ class AgenticChatWidget {
 
     async streamResponse(message, assistantMsg) {
         try {
-            // Single API call - backend handles entire agent loop with streaming events
-            this.updateSubtitle('🤔 Thinking...');
+            // The provider plans first; the browser then performs its actions.
 
             const response = await fetch('/api/method/ai_agent_widget.api.agent_stream', {
                 method: 'POST',
@@ -466,6 +496,7 @@ class AgenticChatWidget {
                     'Content-Type': 'application/json',
                     'X-Frappe-CSRF-Token': frappe.csrf_token
                 },
+                signal: this.requestController.signal,
                 body: JSON.stringify({
                     message: message,
                     context: {
@@ -479,9 +510,11 @@ class AgenticChatWidget {
                 })
             });
 
+            this.throwIfCancelled();
             if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
             const data = await response.json();
+            this.throwIfCancelled();
             const result = data.message || data;
 
             if (result.error) {
@@ -494,13 +527,33 @@ class AgenticChatWidget {
             let navigationSummary = '';
             let otherActionCount = 0;
             assistantMsg.actionCount = 0;
+            const actions = (result.agent_steps || []).filter(step => step.type === 'tool_call');
 
-            for (const step of result.agent_steps || []) {
-                if (step.type !== 'tool_call') continue;
+            if (actions.length) {
+                this.showProgress('Preparing actions…', 0, actions.length);
+            } else {
+                this.showProgress('Preparing your answer…');
+            }
 
-                this.updateSubtitle('Working on it...');
+            for (const step of actions) {
+                this.throwIfCancelled();
+                this.showProgress(
+                    this.describeAction(step.tool, step.args || {}),
+                    assistantMsg.actionCount,
+                    actions.length
+                );
+                this.currentToolCall = step.tool;
+                assistantMsg.actionStarted = true;
                 const toolOutput = await this.executeToolCall(step.tool, step.args || {});
+                this.throwIfCancelled();
+                this.currentToolCall = null;
+                assistantMsg.actionStarted = false;
                 assistantMsg.actionCount++;
+                this.showProgress(
+                    `Completed ${assistantMsg.actionCount} of ${actions.length} actions`,
+                    assistantMsg.actionCount,
+                    actions.length
+                );
                 if (toolOutput.startsWith('❌') || toolOutput.startsWith('⚠️')) {
                     failedActions.push(step.tool);
                 } else if (step.tool === 'navigate') {
@@ -514,7 +567,12 @@ class AgenticChatWidget {
                 }
             }
 
-            if (failedActions.length) {
+            if (failedActions.length && navigationSummary) {
+                const remainingFailures = failedActions.filter(tool => tool !== 'analyze_screen');
+                assistantMsg.content = remainingFailures.length
+                    ? `${navigationSummary} I couldn't complete the remaining action. Please review the page.`
+                    : navigationSummary;
+            } else if (failedActions.length) {
                 assistantMsg.content = "I couldn't complete the request. Please check the page and try again.";
             } else if (informationResults.length) {
                 assistantMsg.content = [navigationSummary, ...informationResults].filter(Boolean).join('\n\n');
@@ -538,16 +596,68 @@ class AgenticChatWidget {
 
             assistantMsg.isStreaming = false;
             this.renderMessages();
-            this.updateSubtitle(this.brandLine);
             this.saveMessages();
 
         } catch (error) {
-            console.error('Agent Error:', error);
-            assistantMsg.content = `❌ Error: ${error.message}`;
+            if (this.isCancelled || error.name === 'AbortError') {
+                assistantMsg.content = this.cancelledMessage(assistantMsg.actionCount || 0, assistantMsg.actionStarted);
+            } else {
+                console.error('Agent Error:', error);
+                assistantMsg.content = `❌ Error: ${error.message}`;
+            }
             assistantMsg.isStreaming = false;
             this.renderMessages();
-            this.updateSubtitle('Error');
         }
+    }
+
+    showProgress(label, completed = 0, total = 0) {
+        this.progressPanel.show().toggleClass('is-indeterminate', !total);
+        this.progressText.text(label);
+        this.progressCount.text(total ? `${completed} / ${total}` : '');
+        this.progressFill.css('width', total ? `${Math.round(completed / total * 100)}%` : '35%');
+    }
+
+    describeAction(tool, args) {
+        const labels = {
+            navigate: `Opening ${args.doctype || 'page'}…`,
+            create_doc: `Opening a new ${args.doctype || 'document'}…`,
+            set_field: `Updating ${args.fieldname || 'field'}…`,
+            set_table_field: `Updating ${args.table_fieldname || 'table'}…`,
+            add_table_row: `Adding a ${args.table_fieldname || 'table'} row…`,
+            click_button: `Selecting ${args.button_text || 'action'}…`,
+            search_doctype: `Searching ${args.doctype || 'records'}…`,
+            get_doctype_list: `Loading ${args.doctype || 'records'}…`,
+            analyze_screen: 'Reviewing this page…'
+        };
+        return labels[tool] || 'Working on your request…';
+    }
+
+    cancelRequest() {
+        if (!this.isLoading || this.isCancelled) return;
+        this.isCancelled = true;
+        this.requestController?.abort();
+        this.progressText.text(this.currentToolCall ? 'Stopping after the current action…' : 'Stopping…');
+        this.cancelBtn.prop('disabled', true);
+    }
+
+    throwIfCancelled() {
+        if (!this.isCancelled) return;
+        throw this.cancelledError();
+    }
+
+    cancelledError() {
+        const error = new Error('Cancelled');
+        error.name = 'AbortError';
+        return error;
+    }
+
+    cancelledMessage(completed, actionStarted) {
+        if (actionStarted) {
+            return `Stopped after ${completed} completed action${completed === 1 ? '' : 's'}. The action in progress may have changed the page; please review it.`;
+        }
+        return completed
+            ? `Stopped after ${completed} action${completed === 1 ? '' : 's'}. Changes already made may remain; please review the page.`
+            : 'Stopped. No actions were run in this browser.';
     }
 
     async executeToolCallFromData(actionData) {
@@ -561,7 +671,7 @@ class AgenticChatWidget {
                     } else {
                         await frappe.set_route('List', actionData.doctype);
                     }
-                    if (frappe.get_route()[1] !== actionData.doctype) {
+                    if (!await this.waitForNavigation(actionData.doctype, actionData.name)) {
                         return `❌ Could not open ${actionData.doctype}`;
                     }
                     return `✅ Navigated to ${actionData.doctype}`;
@@ -608,7 +718,7 @@ class AgenticChatWidget {
                     } else {
                         await frappe.set_route('List', args.doctype);
                     }
-                    if (frappe.get_route()[1] !== args.doctype) {
+                    if (!await this.waitForNavigation(args.doctype, args.name)) {
                         return `❌ Could not open ${args.doctype}`;
                     }
                     return `✅ Navigated to ${args.doctype}`;
@@ -831,7 +941,10 @@ class AgenticChatWidget {
                             return `❌ Cannot read protected field ${args.fieldname}`;
                         }
                         const value = cur_frm.doc[args.fieldname];
-                        return `📋 ${args.fieldname} = "${value || '(empty)'}"`;
+                        const displayValue = value === null || value === undefined || value === ''
+                            ? '(empty)'
+                            : value;
+                        return `📋 ${args.fieldname} = "${displayValue}"`;
                     }
                     return `❌ No form is currently open`;
 
@@ -1128,8 +1241,38 @@ class AgenticChatWidget {
         this.widget.find('.ai-agent-subtitle').text(text);
     }
 
+    async waitForNavigation(doctype, name) {
+        const expectedView = name ? 'Form' : 'List';
+        for (let attempt = 0; attempt < 25; attempt++) {
+            this.throwIfCancelled();
+            const route = frappe.get_route();
+            if (route[0] === expectedView && route[1] === doctype && (!name || route[2] === name)) {
+                return true;
+            }
+            await this.wait(100);
+        }
+        return false;
+    }
+
     wait(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        const signal = this.requestController?.signal;
+        if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+
+        return new Promise((resolve, reject) => {
+            if (signal.aborted) {
+                reject(this.cancelledError());
+                return;
+            }
+            const onAbort = () => {
+                clearTimeout(timer);
+                reject(this.cancelledError());
+            };
+            const timer = setTimeout(() => {
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+            }, ms);
+            signal.addEventListener('abort', onAbort, { once: true });
+        });
     }
 
     showExportModal() {
