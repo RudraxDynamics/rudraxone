@@ -54,13 +54,7 @@ class AgenticChatWidget {
                     };
                 });
                 if (this.messages[0]?.id === '1' && this.messages[0].role === 'assistant') {
-                    this.messages[0].content = this.messages[0].content.replace(
-                        /\*\*(?:Nutaan AI|RudraX One)\*\*/,
-                        '**RudraX Pilot**'
-                    ).replace(
-                        'Intelligent Automation at Your Fingertips',
-                        'Smarter work starts here. Powered by RudraX One.'
-                    );
+                    this.messages[0].content = this.welcomeMessage();
                 }
                 this.saveMessages();
             } catch (e) {
@@ -75,9 +69,13 @@ class AgenticChatWidget {
         this.messages = [{
             id: '1',
             role: 'assistant',
-            content: `**RudraX Pilot**\n Smarter work starts here. Powered by RudraX One. \n\nI can help you with:\n\n🎯 **Navigate** - Go to any page or document\n📝 **Create** - Create new records instantly\n✏️ **Fill Forms** - Automate data entry\n🔍 **Analyze** - Understand page content\n\nWhat would you like to automate today?`,
+            content: this.welcomeMessage(),
             timestamp: new Date()
         }];
+    }
+
+    welcomeMessage() {
+        return `**What can I help you get done?**\n\nChoose a suggestion below or describe your task. I'll use the page you're viewing as context.`;
     }
 
     saveMessages() {
@@ -159,20 +157,11 @@ class AgenticChatWidget {
                     </div>
                     
                     <div class="ai-agent-input-area">
+                        <div class="ai-agent-suggestions">
+                            <div class="ai-agent-suggestions-heading">Suggested for this page</div>
+                            <div class="ai-agent-suggestion-list"></div>
+                        </div>
                         <div class="ai-agent-quick-actions">
-                            <button class="ai-agent-quick-btn" data-action="demo" title="Try Demo">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                                </svg>
-                                <span>Demo</span>
-                            </button>
-                            <button class="ai-agent-quick-btn" data-action="navigate" title="Navigate">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="12" cy="12" r="10"></circle>
-                                    <polyline points="12 6 12 12 16 14"></polyline>
-                                </svg>
-                                <span>Navigate</span>
-                            </button>
                             <button class="ai-agent-quick-btn ai-agent-export-btn" data-action="export" title="Export Report" style="display: none;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -213,10 +202,12 @@ class AgenticChatWidget {
         this.progressCount = this.widget.find('.ai-agent-progress-count');
         this.progressFill = this.widget.find('.ai-agent-progress-fill');
         this.cancelBtn = this.widget.find('.ai-agent-cancel-btn');
+        this.suggestionList = this.widget.find('.ai-agent-suggestion-list');
         this.input = this.widget.find('.ai-agent-input');
 
         this.widget.show();
         this.renderMessages();
+        this.refreshSuggestions();
     }
 
     bindEvents() {
@@ -268,6 +259,18 @@ class AgenticChatWidget {
                 this.handleQuickAction(action);
             }
         });
+        this.widget.on('click', '.ai-agent-suggestion', (event) => {
+            if (this.isLoading) return;
+            const index = Number($(event.currentTarget).attr('data-index'));
+            const suggestion = this.currentSuggestions?.[index];
+            if (!suggestion) return;
+            this.input.val(suggestion.prompt);
+            this.autoResizeTextarea();
+            this.input.focus();
+        });
+        if (frappe.router?.on) {
+            frappe.router.on('change', () => this.refreshSuggestions());
+        }
     }
 
     autoResizeTextarea() {
@@ -306,6 +309,7 @@ class AgenticChatWidget {
         if (this.isOpen) {
             this.floatBtn.hide();
             this.window.show();
+            this.refreshSuggestions();
         } else {
             this.window.hide();
             this.floatBtn.show();
@@ -319,20 +323,68 @@ class AgenticChatWidget {
 
     handleQuickAction(action) {
         switch (action) {
-            case 'demo':
-                this.input.val('Go to Sales Order and create a new sales order with customer Aditya Birla Group');
-                this.autoResizeTextarea(); // Trigger resize after setting value
-                this.input.focus();
-                break;
-            case 'navigate':
-                this.input.val('Go to ');
-                this.autoResizeTextarea(); // Trigger resize after setting value
-                this.input.focus();
-                break;
             case 'clear':
                 this.clearChat();
                 break;
         }
+    }
+
+    getSuggestions() {
+        const route = frappe.get_route?.() || [];
+        const view = route[0];
+        const doctype = route[1];
+        const name = route[2];
+        const form = globalThis.cur_frm;
+        const isNew = view === 'Form' && (name === 'new' || String(name || '').startsWith('new-') ||
+            (!name && form?.doctype === doctype && Boolean(form.is_new?.())));
+
+        if (view === 'Form' && doctype && isNew) {
+            return [
+                { label: 'What is required?', prompt: `What information is required to save this ${doctype}?` },
+                { label: 'Help fill this form', prompt: `Help me complete this ${doctype} form. Ask me for any missing information before saving.` }
+            ];
+        }
+        if (view === 'Form' && doctype && name) {
+            if (doctype === 'Customer') {
+                return [
+                    { label: 'Summarize customer', prompt: `Summarize Customer ${name} using information you can verify.` },
+                    { label: 'Create quotation', prompt: `Help me create a quotation for Customer ${name}. Ask for the items and other required details before saving.` }
+                ];
+            }
+            if (doctype === 'Lead') {
+                return [
+                    { label: 'Summarize lead', prompt: `Summarize Lead ${name} using information you can verify.` },
+                    { label: 'Plan follow-up', prompt: `Help me plan a follow-up for Lead ${name}. Ask me for any missing details.` }
+                ];
+            }
+            return [
+                { label: `Summarize ${doctype}`, prompt: `Summarize this ${doctype} ${name} using information you can verify.` },
+                { label: 'What next?', prompt: `What are useful next steps for this ${doctype} ${name}?` }
+            ];
+        }
+        if (view === 'List' && doctype) {
+            return [
+                { label: `Find ${doctype}`, prompt: `Help me find a ${doctype} record.` },
+                { label: `Create ${doctype}`, prompt: `Help me create a ${doctype}. Ask for required information before saving.` }
+            ];
+        }
+        return [
+            { label: 'Find a customer', prompt: 'Help me find a customer.' },
+            { label: 'What can Pilot do?', prompt: 'What can RudraX Pilot help me do here?' }
+        ];
+    }
+
+    refreshSuggestions() {
+        if (!this.suggestionList) return;
+        this.currentSuggestions = this.getSuggestions();
+        this.suggestionList.empty();
+        this.currentSuggestions.forEach((suggestion, index) => {
+            $('<button type="button" class="ai-agent-suggestion"></button>')
+                .attr('data-index', index)
+                .attr('title', 'Add this prompt to the message box')
+                .text(suggestion.label)
+                .appendTo(this.suggestionList);
+        });
     }
 
     clearChat() {
@@ -377,6 +429,7 @@ class AgenticChatWidget {
         this.widget.find('.ai-agent-export-btn').fadeOut(300);
         if (this.storageKey) localStorage.removeItem(this.storageKey);
         this.renderMessages();
+        this.refreshSuggestions();
     }
 
     renderMessages() {
