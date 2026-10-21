@@ -30,13 +30,20 @@ class AgenticChatWidget {
         if (saved) {
             try {
                 // Older versions stored raw tool output in chat history.
-                this.messages = JSON.parse(saved).map(msg => ({
-                    id: msg.id,
-                    role: msg.role,
-                    content: msg.content,
-                    timestamp: msg.timestamp,
-                    actionCount: msg.actionCount || (msg.toolCalls || []).length
-                }));
+                this.messages = JSON.parse(saved).map(msg => {
+                    const legacyCreated = msg.role === 'assistant' && typeof msg.content === 'string'
+                        ? msg.content.match(/^Created (.+?) ([A-Za-z0-9]+(?:-[A-Za-z0-9]+)+)\.$/)
+                        : null;
+                    return {
+                        id: msg.id,
+                        role: msg.role,
+                        content: msg.content,
+                        timestamp: msg.timestamp,
+                        actionCount: msg.actionCount || (msg.toolCalls || []).length,
+                        recordLinks: Array.isArray(msg.recordLinks) ? msg.recordLinks :
+                            (legacyCreated ? [{ doctype: legacyCreated[1], name: legacyCreated[2] }] : [])
+                    };
+                });
                 if (this.messages[0]?.id === '1' && this.messages[0].role === 'assistant') {
                     this.messages[0].content = this.messages[0].content.replace(
                         /\*\*(?:Nutaan AI|RudraX One)\*\*/,
@@ -70,7 +77,8 @@ class AgenticChatWidget {
             role: msg.role,
             content: msg.content,
             timestamp: msg.timestamp,
-            actionCount: msg.actionCount || 0
+            actionCount: msg.actionCount || 0,
+            recordLinks: msg.recordLinks || []
         }));
         localStorage.setItem('frappe_ai_agent_messages', JSON.stringify(safeMessages));
     }
@@ -209,6 +217,11 @@ class AgenticChatWidget {
 
         // Send button
         this.widget.find('.ai-agent-send-btn').on('click', () => this.sendMessage());
+        this.widget.on('click', '.ai-agent-record-link', (event) => {
+            const link = $(event.currentTarget);
+            frappe.set_route('Form', decodeURIComponent(link.attr('data-doctype')),
+                decodeURIComponent(link.attr('data-name')));
+        });
         this.cancelBtn.on('click', () => this.cancelRequest());
 
         // Enter to send
@@ -366,13 +379,13 @@ class AgenticChatWidget {
         return `
             <div class="ai-agent-message ${isUser ? 'user' : 'assistant'}${hasTable ? ' has-table' : ''}">
                 <div class="ai-agent-message-content">
-                    <div class="ai-agent-message-text">${this.formatContent(message.content || (message.isStreaming ? 'Working on it…' : ''))}</div>
+                    <div class="ai-agent-message-text">${this.formatContent(message.content || (message.isStreaming ? 'Working on it…' : ''), isUser ? [] : message.recordLinks)}</div>
                 </div>
             </div>
         `;
     }
 
-    formatContent(content) {
+    formatContent(content, recordLinks = []) {
         if (!content) return '';
         const lines = String(content)
             .replace(/\r\n?/g, '\n')
@@ -387,11 +400,11 @@ class AgenticChatWidget {
         let codeLines = null;
 
         const flushParagraph = () => {
-            if (paragraph.length) blocks.push(`<p>${paragraph.map(line => this.formatInline(line)).join('<br>')}</p>`);
+            if (paragraph.length) blocks.push(`<p>${paragraph.map(line => this.formatInline(line, recordLinks)).join('<br>')}</p>`);
             paragraph = [];
         };
         const flushList = () => {
-            if (listItems.length) blocks.push(`<${listType}>${listItems.map(item => `<li>${this.formatInline(item)}</li>`).join('')}</${listType}>`);
+            if (listItems.length) blocks.push(`<${listType}>${listItems.map(item => `<li>${this.formatInline(item, recordLinks)}</li>`).join('')}</${listType}>`);
             listItems = [];
             listType = null;
         };
@@ -428,7 +441,7 @@ class AgenticChatWidget {
                 while (index + 1 < lines.length && lines[index + 1].trim().includes('|') && lines[index + 1].trim()) {
                     rows.push(cells(lines[++index]));
                 }
-                blocks.push(`<div class="ai-agent-table-scroll"><table><thead><tr>${headings.map(cell => `<th>${this.formatInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headings.map((_, cellIndex) => `<td>${this.formatInline(row[cellIndex] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+                blocks.push(`<div class="ai-agent-table-scroll"><table><thead><tr>${headings.map(cell => `<th>${this.formatInline(cell, recordLinks)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headings.map((_, cellIndex) => `<td>${this.formatInline(row[cellIndex] || '', recordLinks)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
                 continue;
             }
             if (!trimmed) {
@@ -440,7 +453,7 @@ class AgenticChatWidget {
             if (heading) {
                 flushParagraph();
                 flushList();
-                blocks.push(`<h4>${this.formatInline(heading[2])}</h4>`);
+                blocks.push(`<h4>${this.formatInline(heading[2], recordLinks)}</h4>`);
                 continue;
             }
             const list = trimmed.match(/^(?:([-*])|(\d+[.)]))\s+(.+)$/);
@@ -465,15 +478,47 @@ class AgenticChatWidget {
         return $('<div>').text(value).html();
     }
 
-    formatInline(value) {
+    formatInline(value, recordLinks = []) {
         const code = [];
-        let safe = this.escapeHtml(value).replace(/`([^`]+)`/g, (_match, text) => {
-            code.push(`<code>${text}</code>`);
+        let plain = String(value).replace(/`([^`]+)`/g, (_match, text) => {
+            code.push(`<code>${this.escapeHtml(text)}</code>`);
             return `\uE000${code.length - 1}\uE001`;
         });
+        const linkMarkup = [];
+        const links = (Array.isArray(recordLinks) ? recordLinks : [])
+            .filter(link => typeof link?.doctype === 'string' && typeof link?.name === 'string' && link.name)
+            .sort((a, b) => b.name.length - a.name.length);
+        if (links.length) {
+            let linked = '';
+            for (let index = 0; index < plain.length;) {
+                if (plain[index] === '\uE000') {
+                    const end = plain.indexOf('\uE001', index);
+                    if (end !== -1) {
+                        linked += plain.slice(index, end + 1);
+                        index = end + 1;
+                        continue;
+                    }
+                }
+                const link = links.find(item => plain.startsWith(item.name, index) &&
+                    (index === 0 || !/[A-Za-z0-9_]/.test(plain[index - 1])) &&
+                    (index + item.name.length === plain.length || !/[A-Za-z0-9_]/.test(plain[index + item.name.length])));
+                if (link) {
+                    const doctype = encodeURIComponent(link.doctype).replace(/'/g, '%27');
+                    const name = encodeURIComponent(link.name).replace(/'/g, '%27');
+                    linkMarkup.push(`<button type="button" class="ai-agent-record-link" data-doctype="${doctype}" data-name="${name}" title="Open record">${this.escapeHtml(link.name)}</button>`);
+                    linked += `\uE100${linkMarkup.length - 1}\uE101`;
+                    index += link.name.length;
+                } else {
+                    linked += plain[index++];
+                }
+            }
+            plain = linked;
+        }
+        let safe = this.escapeHtml(plain);
         safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-        return safe.replace(/\uE000(\d+)\uE001/g, (_match, index) => code[Number(index)] || '');
+        return safe.replace(/\uE000(\d+)\uE001/g, (_match, index) => code[Number(index)] || '')
+            .replace(/\uE100(\d+)\uE101/g, (_match, index) => linkMarkup[Number(index)] || '');
     }
 
     scrollToBottom() {
@@ -583,6 +628,7 @@ class AgenticChatWidget {
             let sessionId = null;
             let actionResult = null;
             let savedDocument = null;
+            let recordLinks = [];
             assistantMsg.actionCount = 0;
 
             while (true) {
@@ -599,6 +645,7 @@ class AgenticChatWidget {
                         session_id: sessionId,
                         action_result: actionResult,
                         saved_document: savedDocument,
+                        record_links: recordLinks,
                         message: sessionId ? undefined : message,
                         context: { currentPath: frappe.get_route_str() },
                         history: sessionId ? undefined : this.messages.filter(m => m.id !== assistantMsg.id).map(m => ({
@@ -617,6 +664,7 @@ class AgenticChatWidget {
 
                 if (result.done) {
                     assistantMsg.content = this.cleanResponseContent(result.content) || 'Done.';
+                    assistantMsg.recordLinks = result.record_links || [];
                     break;
                 }
                 if (!result.action?.tool) throw new Error('The assistant did not return an action.');
@@ -626,9 +674,11 @@ class AgenticChatWidget {
                 this.currentToolCall = tool;
                 assistantMsg.actionStarted = true;
                 this.lastSavedDocument = null;
+                this.lastRecordLinks = [];
                 actionResult = await this.executeToolCall(tool, args);
                 this.throwIfCancelled();
                 savedDocument = this.lastSavedDocument;
+                recordLinks = this.lastRecordLinks;
                 this.currentToolCall = null;
                 assistantMsg.actionStarted = false;
                 assistantMsg.actionCount++;
@@ -768,6 +818,7 @@ class AgenticChatWidget {
                     if (!await this.waitForNavigation(args.doctype, args.name)) {
                         return `❌ Could not open ${args.doctype}`;
                     }
+                    if (args.name) this.lastRecordLinks = [{ doctype: args.doctype, name: args.name }];
                     return `✅ Navigated to ${args.doctype}`;
 
                 case 'create_doc':
@@ -1001,6 +1052,10 @@ class AgenticChatWidget {
                             return `❌ Cannot read protected field ${args.fieldname}`;
                         }
                         const value = cur_frm.doc[args.fieldname];
+                        const field = cur_frm.fields_dict?.[args.fieldname]?.df;
+                        if (field?.fieldtype === 'Link' && field.options && value) {
+                            this.lastRecordLinks = [{ doctype: field.options, name: String(value) }];
+                        }
                         const displayValue = value === null || value === undefined || value === ''
                             ? '(empty)'
                             : value;
@@ -1104,6 +1159,7 @@ class AgenticChatWidget {
                         }
 
                         const names = searchResults.map(r => r.name).slice(0, 10);
+                        this.lastRecordLinks = names.map(name => ({ doctype: args.doctype, name }));
                         const displayList = names.join(', ');
                         const total = searchResults.length;
                         return `📋 Found ${total} ${args.doctype} record(s) matching "${args.search_text}":\n${displayList}${total > 10 ? ` (showing first 10)` : ''}`;
@@ -1137,6 +1193,7 @@ class AgenticChatWidget {
                         }
 
                         const names = listResults.map(r => r.name).slice(0, 15);
+                        this.lastRecordLinks = names.map(name => ({ doctype: args.doctype, name }));
                         const total = listResults.length;
 
                         // Return in clear format with exact names in quotes

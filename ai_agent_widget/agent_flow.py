@@ -50,6 +50,30 @@ def _verified_save(state, saved_document):
     return {"doctype": doctype, "name": name, "created": saved_document.get("created") is True}
 
 
+def _collect_record_links(state, candidates):
+    if not isinstance(candidates, list):
+        return
+    links = state["record_links"]
+    for candidate in candidates[:20]:
+        if not isinstance(candidate, dict):
+            continue
+        doctype = candidate.get("doctype")
+        name = candidate.get("name")
+        if not isinstance(doctype, str) or not isinstance(name, str) or not doctype or not name:
+            continue
+        if len(doctype) > 140 or len(name) > 140 or any(
+            item["doctype"] == doctype and item["name"] == name for item in links
+        ):
+            continue
+        try:
+            if frappe.db.exists(doctype, name) and frappe.has_permission(doctype, "read", name):
+                links.append({"doctype": doctype, "name": name})
+        except Exception:
+            continue
+        if len(links) >= 50:
+            break
+
+
 def run_step(data, user, context=None):
     """Start a request or continue it with one completed browser action."""
     session_id = data.get("session_id")
@@ -62,9 +86,12 @@ def run_step(data, user, context=None):
         saved = _verified_save({"pending": pending}, data.get("saved_document"))
         if saved:
             state["saved_document"] = saved
+            _collect_record_links(state, [saved])
             result = f"✅ Saved {saved['doctype']} {saved['name']}"
         elif pending["name"] == "click_button" and pending["args"].get("button_text", "").strip().lower() in ("save", "update"):
             result = result if result.startswith(("❌", "⚠️")) else "❌ Save was not confirmed. Check the form for validation errors."
+        if pending["name"] in ("navigate", "search_doctype", "get_doctype_list", "get_field_value"):
+            _collect_record_links(state, data.get("record_links"))
         state["messages"].append(ToolMessage(content=result, tool_call_id=pending["id"]))
     else:
         message = str(data.get("message") or "").strip()
@@ -99,12 +126,14 @@ def run_step(data, user, context=None):
                 messages.append(AIMessage(content=content))
         messages.append(HumanMessage(content=message))
         state = {"user": user, "messages": messages, "action_count": 0,
-                 "create_started": False, "saved_document": None, "pending": None}
+                 "create_started": False, "saved_document": None, "pending": None,
+                 "record_links": []}
 
     if state["action_count"] >= MAX_ACTIONS:
         frappe.cache().delete_value(_session_key(session_id))
         return {"session_id": session_id, "done": True,
-                "content": "I stopped after too many actions. Please review the page and send a new request."}
+                "content": "I stopped after too many actions. Please review the page and send a new request.",
+                "record_links": state["record_links"]}
 
     model = get_configured_manager().model.bind_tools(get_all_tools())
     answer = model.invoke(state["messages"])
@@ -135,4 +164,4 @@ def run_step(data, user, context=None):
         content = f"{verb} {saved['doctype']} {saved['name']}."
     frappe.cache().delete_value(_session_key(session_id))
     return {"session_id": session_id, "done": True, "content": content,
-            "saved_document": state["saved_document"]}
+            "saved_document": state["saved_document"], "record_links": state["record_links"]}

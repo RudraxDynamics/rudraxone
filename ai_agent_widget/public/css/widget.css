@@ -349,6 +349,27 @@
     background: none;
 }
 
+.ai-agent-message-text .ai-agent-record-link {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #5b5fd6;
+    font: inherit;
+    font-weight: 650;
+    line-height: inherit;
+    text-decoration: underline;
+    text-decoration-color: rgba(91, 95, 214, 0.35);
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+
+.ai-agent-message-text .ai-agent-record-link:hover,
+.ai-agent-message-text .ai-agent-record-link:focus-visible {
+    color: #4338a5;
+    text-decoration-color: currentColor;
+}
+
 /* Tool Calls */
 .ai-agent-tool-call {
     margin-top: 8px;
