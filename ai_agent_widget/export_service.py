@@ -11,6 +11,7 @@ from frappe.utils.pdf import get_pdf
 from frappe.utils import now_datetime
 from datetime import datetime
 from typing import Dict, List, Any
+from .redaction import redact_session_data
 
 
 def generate_conversation_report_html(conversation_data: Dict[str, Any]) -> str:
@@ -23,6 +24,7 @@ def generate_conversation_report_html(conversation_data: Dict[str, Any]) -> str:
     Returns:
         Clean, professional HTML ready for PDF conversion
     """
+    conversation_data = redact_session_data(conversation_data)
     messages = conversation_data.get('messages', [])
     
     # Group messages by user request and track summary data
@@ -134,8 +136,8 @@ def generate_conversation_report_html(conversation_data: Dict[str, Any]) -> str:
                 
                 conversation_html += f"""
                 <div class="action {status}">
-                    <div class="action-name">{icon} {_format_tool_name(tool_name)}</div>
-                    {f'<div class="action-details">{details}</div>' if details else ''}
+                    <div class="action-name">{icon} {_escape_html(_format_tool_name(tool_name))}</div>
+                    {f'<div class="action-details">{_escape_html(details)}</div>' if details else ''}
                     <div class="action-result">{_escape_html(result)}</div>
                 </div>
                 """
@@ -414,13 +416,13 @@ def _generate_summary_section(total_actions, documents_created, doctypes, conver
     if documents_created:
         docs_html += '<ul class="summary-list">'
         for doc in documents_created:
-            docs_html += f'<li>{doc["detail"]}</li>'
+            docs_html += f'<li>{_escape_html(doc["detail"])}</li>'
         docs_html += '</ul>'
     else:
         docs_html = '<div class="summary-value">No documents created</div>'
     
     # Build doctypes list
-    doctypes_html = ", ".join(doctypes) if doctypes else "N/A"
+    doctypes_html = ", ".join(_escape_html(doctype) for doctype in doctypes) if doctypes else "N/A"
     
     # Calculate overall outcome
     success_count = sum(1 for block in conversation_blocks 

@@ -8,6 +8,7 @@ from nutaan_erp.core.tools import get_all_tools
 from nutaan_erp.utils.context import build_system_prompt
 
 from .providers import get_configured_manager
+from .redaction import redact_text, sensitive_values
 
 
 SESSION_TTL = 1800
@@ -81,8 +82,9 @@ def run_step(data, user, context=None):
         state = frappe.cache().get_value(_session_key(session_id))
         if not state or state.get("user") != user or not state.get("pending"):
             frappe.throw("This assistant request has expired. Please send it again.")
+        state.setdefault("secret_values", set())
         pending = state.pop("pending")
-        result = str(data.get("action_result") or "")[:6000]
+        result = redact_text(str(data.get("action_result") or "")[:6000], state["secret_values"])
         saved = _verified_save({"pending": pending}, data.get("saved_document"))
         if saved:
             state["saved_document"] = saved
@@ -127,7 +129,7 @@ def run_step(data, user, context=None):
         messages.append(HumanMessage(content=message))
         state = {"user": user, "messages": messages, "action_count": 0,
                  "create_started": False, "saved_document": None, "pending": None,
-                 "record_links": []}
+                 "record_links": [], "secret_values": set()}
 
     if state["action_count"] >= MAX_ACTIONS:
         frappe.cache().delete_value(_session_key(session_id))
@@ -144,6 +146,7 @@ def run_step(data, user, context=None):
             frappe.throw("The assistant requested an unsupported action.")
         call_id = call.get("id") or uuid4().hex
         args = call.get("args") or {}
+        state["secret_values"].update(sensitive_values(args))
         state["messages"].append(AIMessage(content=_content_text(answer.content), tool_calls=[
             {"name": call["name"], "args": args, "id": call_id}
         ]))
@@ -156,6 +159,7 @@ def run_step(data, user, context=None):
                 "action": {"tool": call["name"], "args": args}}
 
     content = _content_text(answer.content) or "Done."
+    content = redact_text(content, state["secret_values"])
     if state["create_started"] and not state["saved_document"]:
         content = "No record has been saved yet. Please review the form and its validation messages."
     elif state["saved_document"]:

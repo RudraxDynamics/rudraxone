@@ -19,6 +19,7 @@ except ImportError:
 # Import export and sharing services
 from . import export_service
 from . import sharing_service
+from .redaction import redact_session_data
 
 @frappe.whitelist(allow_guest=False)
 def agent_stream():
@@ -58,17 +59,17 @@ def agent_stream():
         
         from .agent_flow import run_step
 
-        return run_step(data, frappe.session.user, context)
+        result = run_step(data, frappe.session.user, context)
+        # Action commands are needed by the browser; internal session traces are not.
+        for key in ("session_data", "agent_steps", "tool_calls", "debug_events", "traceback"):
+            result.pop(key, None)
+        return result
         
     except Exception as e:
-        # Log error for debugging
-        frappe.log_error(
-            f"AI Agent Error: {str(e)}",
-            "AI Agent Widget"
-        )
+        frappe.log_error(f"AI Agent Error ({type(e).__name__})", "AI Agent Widget")
         
         return {
-            "error": str(e),
+            "error": "The assistant request failed. Please try again or check AI Agent Settings.",
             "success": False
         }
 
@@ -88,6 +89,7 @@ def export_session_pdf(session_data):
         # Parse session data
         if isinstance(session_data, str):
             session_data = json.loads(session_data)
+        session_data = redact_session_data(session_data)
         
         session_id = session_data.get('session_id', 'unknown')
         
@@ -100,7 +102,7 @@ def export_session_pdf(session_data):
         temp_key = hashlib.md5(f"{session_id}_{time.time()}".encode()).hexdigest()
         
         # Store in cache (will be manually deleted after download)
-        frappe.cache().set_value(f"pdf_{temp_key}", pdf_bytes)
+        frappe.cache().set_value(f"pdf_{frappe.session.user}_{temp_key}", pdf_bytes)
         
         return {
             "success": True,
@@ -139,7 +141,7 @@ def download_session_pdf(session_id):
         temp_key = frappe.request.json.get('temp_key') if hasattr(frappe.request, 'json') else None
         
         if temp_key:
-            pdf_bytes = frappe.cache().get_value(f"pdf_{temp_key}")
+            pdf_bytes = frappe.cache().get_value(f"pdf_{frappe.session.user}_{temp_key}")
             if pdf_bytes:
                 # Don't delete - allow multiple downloads
                 frappe.local.response.filename = f"RudraX_Pilot_Report_{session_id[:8]}.pdf"
@@ -176,6 +178,7 @@ def share_session_whatsapp(session_data):
         # Parse session data
         if isinstance(session_data, str):
             session_data = json.loads(session_data)
+        session_data = redact_session_data(session_data)
         
         session_id = session_data.get('session_id', 'unknown')
         
@@ -219,6 +222,7 @@ def share_session_email(session_data, to_email):
         # Parse session data
         if isinstance(session_data, str):
             session_data = json.loads(session_data)
+        session_data = redact_session_data(session_data)
         
         session_id = session_data.get('session_id', 'unknown')
         

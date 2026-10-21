@@ -19,6 +19,7 @@ class AgenticChatWidget {
         this.currentSessionData = null;  // Store session data for export
         this.hasCompletedActions = false; // Track if any actions were performed
         this.currentPdfKey = null; // Store PDF cache key for cleanup
+        this.storageKey = this.getStorageKey();
 
         this.loadMessages();
         this.render();
@@ -26,7 +27,15 @@ class AgenticChatWidget {
     }
 
     loadMessages() {
-        const saved = localStorage.getItem('frappe_ai_agent_messages');
+        // The old key was shared by everyone using this browser profile.
+        localStorage.removeItem('frappe_ai_agent_messages');
+        const site = frappe.boot?.sitename || globalThis.location?.host || 'site';
+        const prefix = `frappe_ai_agent_messages:${encodeURIComponent(site)}:`;
+        for (let index = localStorage.length - 1; index >= 0; index--) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(prefix) && key !== this.storageKey) localStorage.removeItem(key);
+        }
+        const saved = this.storageKey ? localStorage.getItem(this.storageKey) : null;
         if (saved) {
             try {
                 // Older versions stored raw tool output in chat history.
@@ -72,6 +81,7 @@ class AgenticChatWidget {
     }
 
     saveMessages() {
+        if (!this.storageKey) return;
         const safeMessages = this.messages.map(msg => ({
             id: msg.id,
             role: msg.role,
@@ -80,7 +90,14 @@ class AgenticChatWidget {
             actionCount: msg.actionCount || 0,
             recordLinks: msg.recordLinks || []
         }));
-        localStorage.setItem('frappe_ai_agent_messages', JSON.stringify(safeMessages));
+        localStorage.setItem(this.storageKey, JSON.stringify(safeMessages));
+    }
+
+    getStorageKey() {
+        const user = frappe.session?.user;
+        if (!user || user === 'Guest') return null;
+        const site = frappe.boot?.sitename || globalThis.location?.host || 'site';
+        return `frappe_ai_agent_messages:${encodeURIComponent(site)}:${encodeURIComponent(user)}`;
     }
 
     render() {
@@ -358,7 +375,7 @@ class AgenticChatWidget {
         this.currentSessionData = null;
         this.hasCompletedActions = false;
         this.widget.find('.ai-agent-export-btn').fadeOut(300);
-        localStorage.removeItem('frappe_ai_agent_messages');
+        if (this.storageKey) localStorage.removeItem(this.storageKey);
         this.renderMessages();
     }
 
@@ -1403,7 +1420,7 @@ class AgenticChatWidget {
 
         const totalMessages = conversationData.total_messages;
         const totalActions = conversationData.total_actions;
-        const firstMessage = conversationData.first_message || 'N/A';
+        const firstMessage = this.escapeHtml(conversationData.first_message || 'N/A');
         const duration = conversationData.duration || '0s';
 
         const dialog = new frappe.ui.Dialog({
